@@ -34,7 +34,7 @@ class FMPUtils:
     ) -> str:
         """Get the target price for a given stock on a given date"""
         # API URL
-        url = f"https://financialmodelingprep.com/api/v4/price-target?symbol={ticker_symbol}&apikey={fmp_api_key}"
+        url = f"https://financialmodelingprep.com/stable/price-target?symbol={ticker_symbol}&apikey={fmp_api_key}"
 
         # 发送GET请求
         price_target = "Not Given"
@@ -71,7 +71,7 @@ class FMPUtils:
     ) -> str:
         """Get the url and filing date of the 10-K report for a given stock and year"""
 
-        url = f"https://financialmodelingprep.com/api/v3/sec_filings/{ticker_symbol}?type=10-k&page=0&apikey={fmp_api_key}"
+        url = f"https://financialmodelingprep.com/stable/sec_filings/{ticker_symbol}?type=10-k&page=0&apikey={fmp_api_key}"
 
         # 发送GET请求
         filing_url = None
@@ -102,7 +102,7 @@ class FMPUtils:
     ) -> str:
         """Get the historical market capitalization for a given stock on a given date"""
         date = get_next_weekday(date).strftime("%Y-%m-%d")
-        url = f"https://financialmodelingprep.com/api/v3/historical-market-capitalization/{ticker_symbol}?limit=100&from={date}&to={date}&apikey={fmp_api_key}"
+        url = f"https://financialmodelingprep.com/stable/historical-market-capitalization/{ticker_symbol}?limit=100&from={date}&to={date}&apikey={fmp_api_key}"
 
         # 发送GET请求
         mkt_cap = None
@@ -123,7 +123,7 @@ class FMPUtils:
     ) -> str:
         """Get the historical book value per share for a given stock on a given date"""
         # 从FMP API获取历史关键财务指标数据
-        url = f"https://financialmodelingprep.com/api/v3/key-metrics/{ticker_symbol}?limit=40&apikey={fmp_api_key}"
+        url = f"https://financialmodelingprep.com/stable/key-metrics/{ticker_symbol}?limit=40&apikey={fmp_api_key}"
         response = requests.get(url)
         data = response.json()
 

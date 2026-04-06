@@ -75,17 +75,19 @@ class CatalystAnalyzer:
         'drops coverage', 'cuts target', 'lowers target', 'reduces target',
     ]
 
-    def __init__(self, ticker: str, api_key: str = None, company_name: str = None):
+    def __init__(self, ticker: str, api_key: str = None, company_name: str = None, language: str = 'en'):
         """
         初始化催化剂分析器
-        
+
         Args:
             ticker: 股票代码
             api_key: API密钥（用于获取新闻和日历数据）
+            language: 'zh' 中文 或 'en' 英文
         """
         self.ticker = ticker
         self.api_key = api_key
         self.company_name = company_name
+        self.language = language
         self.catalysts: List[CatalystData] = []
         self.news_data: List[Dict] = []
 
@@ -334,38 +336,48 @@ class CatalystAnalyzer:
             摘要文本
         """
         if not self.catalysts:
+            if self.language == 'zh':
+                return f"在分析期内未识别到{self.ticker}的重大催化剂事件。"
             return f"No significant catalysts identified for {self.ticker} in the analysis period."
-        
+
         categorized = self.categorize_catalysts()
-        
-        summary_parts = [f"## Catalyst Analysis for {self.ticker}\n"]
-        
+        is_zh = getattr(self, 'language', 'en') == 'zh'
+
+        if is_zh:
+            summary_parts = [f"## {self.ticker} 催化剂分析\n"]
+        else:
+            summary_parts = [f"## Catalyst Analysis for {self.ticker}\n"]
+
         # 正面催化剂
         if categorized['positive']:
-            summary_parts.append("### Positive Catalysts (Upside Potential)")
-            for cat in categorized['positive'][:5]:  # 最多5个
+            summary_parts.append("### " + ("正面催化剂（上行潜力）" if is_zh else "Positive Catalysts (Upside Potential)"))
+            for cat in categorized['positive'][:5]:
                 summary_parts.append(f"- **{cat.event_type.replace('_', ' ').title()}** "
                                    f"({cat.expected_date}): {cat.description}")
-                summary_parts.append(f"  - Impact: {cat.impact_level.upper()}, "
-                                   f"Probability: {cat.probability*100:.0f}%")
+                impact_label = "影响" if is_zh else "Impact"
+                prob_label = "概率" if is_zh else "Probability"
+                summary_parts.append(f"  - {impact_label}: {cat.impact_level.upper()}, "
+                                   f"{prob_label}: {cat.probability*100:.0f}%")
             summary_parts.append("")
-        
+
         # 负面催化剂/风险
         if categorized['negative']:
-            summary_parts.append("### Risk Factors (Downside Risks)")
+            summary_parts.append("### " + ("风险因素（下行风险）" if is_zh else "Risk Factors (Downside Risks)"))
             for cat in categorized['negative'][:5]:
                 summary_parts.append(f"- **{cat.event_type.replace('_', ' ').title()}** "
                                    f"({cat.expected_date}): {cat.description}")
-                summary_parts.append(f"  - Impact: {cat.impact_level.upper()}, "
-                                   f"Probability: {cat.probability*100:.0f}%")
+                impact_label = "影响" if is_zh else "Impact"
+                prob_label = "概率" if is_zh else "Probability"
+                summary_parts.append(f"  - {impact_label}: {cat.impact_level.upper()}, "
+                                   f"{prob_label}: {cat.probability*100:.0f}%")
             summary_parts.append("")
-        
+
         # 中性/待观察
         if categorized['neutral']:
-            summary_parts.append("### Events to Monitor")
+            summary_parts.append("### " + ("待观察事件" if is_zh else "Events to Monitor"))
             for cat in categorized['neutral'][:3]:
                 summary_parts.append(f"- {cat.description} ({cat.expected_date})")
-        
+
         return "\n".join(summary_parts)
     
     def get_top_catalysts(self, n: int = 5) -> List[Dict]:

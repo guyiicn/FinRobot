@@ -8,6 +8,8 @@
 import matplotlib
 matplotlib.use("Agg")  # Use a non-interactive backend for running in scripts
 import matplotlib.pyplot as plt
+from modules.chart_fonts import setup_chart_fonts
+setup_chart_fonts()
 import matplotlib.patches as mpatches
 import numpy as np
 import pandas as pd
@@ -145,34 +147,38 @@ def generate_revenue_ebitda_chart(analysis_df: pd.DataFrame, output_path: str, c
             print("Warning: Revenue or EBITDA data is non-numeric.")
             return None
 
-        # 转换为十亿美元
+        # 检测是否为A股 (6位数字)
+        is_a_share = bool(re.match(r'^\d{6}$', str(company_ticker)))
+        cs = '¥' if is_a_share else '$'
+
+        # 转换为十亿
         revenue_billions = revenue_data / 1e9
         ebitda_billions = ebitda_data / 1e9
 
         fig, ax1 = plt.subplots(figsize=(7, 4))
-        
+
         x = np.arange(len(years))
         width = 0.6
-        
+
         # 柱状图 - Revenue (深蓝色)
-        bars = ax1.bar(x, revenue_billions, width, color=ChartColors.PRIMARY, 
+        bars = ax1.bar(x, revenue_billions, width, color=ChartColors.PRIMARY,
                        alpha=0.85, label='Revenue', edgecolor='white', linewidth=0.5)
-        
+
         ax1.set_xlabel('Year', fontsize=9, color=ChartColors.TEXT)
-        ax1.set_ylabel('Revenue ($B)', fontsize=9, color=ChartColors.PRIMARY)
+        ax1.set_ylabel(f'Revenue ({cs}B)', fontsize=9, color=ChartColors.PRIMARY)
         ax1.tick_params(axis='y', labelcolor=ChartColors.PRIMARY)
         ax1.set_xticks(x)
         ax1.set_xticklabels(years, rotation=45, ha='right')
-        
+
         # 折线图 - EBITDA (金色)
         ax2 = ax1.twinx()
-        line = ax2.plot(x, ebitda_billions, color=ChartColors.ACCENT, marker='o', 
+        line = ax2.plot(x, ebitda_billions, color=ChartColors.ACCENT, marker='o',
                         markersize=6, linewidth=2.5, label='EBITDA')
-        ax2.set_ylabel('EBITDA ($B)', fontsize=9, color=ChartColors.ACCENT)
+        ax2.set_ylabel(f'EBITDA ({cs}B)', fontsize=9, color=ChartColors.ACCENT)
         ax2.tick_params(axis='y', labelcolor=ChartColors.ACCENT)
-        
+
         # 标题
-        ax1.set_title(f"{company_ticker} - Revenue & EBITDA Trend", 
+        ax1.set_title(f"{company_ticker} - Revenue & EBITDA Trend",
                      fontsize=11, fontweight='bold', color=ChartColors.TEXT, pad=15)
         
         # 图例

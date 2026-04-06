@@ -456,7 +456,7 @@ def get_enhanced_company_news(ticker: str, api_key: str, days_back: int = 5,
         to_date = end_date.strftime('%Y-%m-%d')
         
         # 获取新闻
-        url = "https://financialmodelingprep.com/api/v3/stock_news"
+        url = "https://financialmodelingprep.com/stable/stock_news"
         params = {
             'tickers': ticker,
             'from': from_date,

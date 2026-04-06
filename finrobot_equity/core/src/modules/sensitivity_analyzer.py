@@ -277,41 +277,55 @@ class SensitivityAnalyzer:
         
         return assumptions
     
-    def generate_sensitivity_summary(self) -> str:
+    def generate_sensitivity_summary(self, language: str = 'en') -> str:
         """
         生成敏感性分析摘要文本
-        
+
+        Args:
+            language: 'zh' 中文 或 'en' 英文
+
         Returns:
             摘要文本
         """
+        is_zh = language == 'zh'
+        cs = '¥' if is_zh else '$'
         summary_parts = []
-        
-        summary_parts.append("## Sensitivity Analysis Summary\n")
-        
+
+        if is_zh:
+            summary_parts.append("## 敏感性分析摘要\n")
+        else:
+            summary_parts.append("## Sensitivity Analysis Summary\n")
+
         # 假设说明
         assumptions = self.get_forecast_assumptions()
         if assumptions:
-            summary_parts.append("### Key Assumptions:")
+            summary_parts.append("### " + ("核心假设：" if is_zh else "Key Assumptions:"))
             for key, value in assumptions.items():
                 summary_parts.append(f"- {key}: {value}")
             summary_parts.append("")
-        
+
         # 置信区间
         if self.confidence_intervals:
-            summary_parts.append("### Confidence Intervals:")
+            summary_parts.append("### " + ("置信区间：" if is_zh else "Confidence Intervals:"))
             for metric, ci in self.confidence_intervals.items():
                 summary_parts.append(
-                    f"- {metric}: ${ci['lower']/1e9:.1f}B - ${ci['upper']/1e9:.1f}B "
-                    f"({ci['confidence']*100:.0f}% confidence)"
+                    f"- {metric}: {cs}{ci['lower']/1e9:.1f}B - {cs}{ci['upper']/1e9:.1f}B "
+                    f"({ci['confidence']*100:.0f}% " + ("置信度" if is_zh else "confidence") + ")"
                 )
             summary_parts.append("")
-        
+
         # 敏感性说明
-        summary_parts.append("### Sensitivity Notes:")
-        summary_parts.append("- Revenue growth sensitivity: ±5% change in growth rate")
-        summary_parts.append("- Margin sensitivity: ±2% change in EBITDA margin")
-        summary_parts.append("- Combined effects shown in sensitivity matrix")
-        
+        if is_zh:
+            summary_parts.append("### 敏感性说明：")
+            summary_parts.append("- 营收增速敏感性：增长率 ±5% 变动")
+            summary_parts.append("- 利润率敏感性：EBITDA利润率 ±2% 变动")
+            summary_parts.append("- 组合效应详见敏感性矩阵")
+        else:
+            summary_parts.append("### Sensitivity Notes:")
+            summary_parts.append("- Revenue growth sensitivity: ±5% change in growth rate")
+            summary_parts.append("- Margin sensitivity: ±2% change in EBITDA margin")
+            summary_parts.append("- Combined effects shown in sensitivity matrix")
+
         return "\n".join(summary_parts)
 
 

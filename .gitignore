@@ -39,3 +39,19 @@ venv/
 .app.pid
 finrobot_equity/logs/
 finrobot_equity/web_app/data/*.db
+# FinRobot output
+output/
+test_output/
+finrobot_equity/core/src/output/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# ChromaDB
+.finrobot_rag/
+
+# IDE
+.vscode/
+.idea/

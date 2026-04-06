@@ -1,0 +1,53 @@
+version: '3.8'
+
+# FinRobot Docker Compose 配置
+# 包含 Web 应用、数据持久化和可选的反向代理
+
+services:
+  # FinRobot Web 应用
+  finrobot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finrobot_app
+    restart: unless-stopped
+    ports:
+      - "${WEB_PORT:-8001}:8001"
+    volumes:
+      # 配置文件挂载（API Keys）
+      - ./finrobot_equity/core/config:/app/finrobot_equity/core/config:ro
+      # 数据持久化
+      - finrobot_data:/app/finrobot_equity/web_app/data
+      - finrobot_output:/app/output
+      - finrobot_logs:/app/finrobot_equity/logs
+    environment:
+      - PYTHONPATH=/app
+      - WEB_HOST=0.0.0.0
+      - WEB_PORT=8001
+      - WEB_RELOAD=false
+    networks:
+      - finrobot_network
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8001/health', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+# 数据卷定义
+volumes:
+  finrobot_data:
+    name: finrobot_data
+    driver: local
+  finrobot_output:
+    name: finrobot_output
+    driver: local
+  finrobot_logs:
+    name: finrobot_logs
+    driver: local
+
+# 网络定义
+networks:
+  finrobot_network:
+    name: finrobot_network
+    driver: bridge

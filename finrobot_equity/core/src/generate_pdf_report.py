@@ -13,9 +13,11 @@
 
 import argparse
 import os
+import re
 import sys
 import json
-from datetime import datetime
+import time
+from datetime import datetime, timedelta
 from typing import Dict, Any, Optional
 
 import pandas as pd
@@ -42,7 +44,7 @@ from modules.chart_generator import (
 )
 from modules.market_data_api import get_comprehensive_company_metrics, get_technical_indicators
 from modules.pdf_generator import generate_equity_report_pdf
-from modules.professional_pdf_report import generate_professional_report
+from modules.professional_pdf_report import generate_professional_report, apply_theme
 
 
 def load_analysis_data(analysis_dir: str, ticker: str) -> Dict[str, Any]:
@@ -437,9 +439,12 @@ def main():
                        help="Skip fetching market data from API")
     parser.add_argument("--analyst-names", type=str, nargs="*", 
                        default=["AI4Finance FinRobot"])
-    parser.add_argument("--research-source", type=str, 
+    parser.add_argument("--research-source", type=str,
                        default="AI4Finance Foundation FinRobot Equity Research")
-    
+    parser.add_argument("--style", type=str, default="default",
+                       choices=["default", "cicc"],
+                       help="Report style theme: 'default' (investment bank blue) or 'cicc' (中金红)")
+
     args = parser.parse_args()
     
     # 设置路径
@@ -471,6 +476,7 @@ def main():
     # 2. 获取市场数据
     market_data = {}
     tech_indicators = {}
+    is_a_share = bool(re.match(r'^\d{6}$', ticker))
     if not args.skip_market_fetch:
         market_data = fetch_market_data(ticker, args.config_file)
         # Fetch technical indicators
@@ -481,6 +487,93 @@ def main():
                 tech_indicators = get_technical_indicators(ticker, fmp_key)
         except Exception as e:
             print(f"⚠️ Could not compute technical indicators: {e}")
+
+    # 2.5 A股：用同花顺+新浪源获取实时行情和指标
+    if is_a_share:
+        print(f"📊 A股数据：从同花顺/新浪获取 {ticker} 行情...")
+        saved_proxy = {}
+        for key in ['HTTP_PROXY', 'HTTPS_PROXY', 'http_proxy', 'https_proxy', 'ALL_PROXY', 'all_proxy']:
+            if key in os.environ:
+                saved_proxy[key] = os.environ.pop(key)
+        try:
+            import akshare as ak
+            import numpy as np
+
+            # — 新浪日K：获取股价、52周区间、流通股 —
+            first_digit = ticker[0]
+            sina_symbol = f"{'sh' if first_digit in ('6','9') else 'sz'}{ticker}"
+            hist = ak.stock_zh_a_daily(symbol=sina_symbol, adjust='qfq')
+            time.sleep(1.5)
+            if hist is not None and not hist.empty:
+                close = hist['close'].astype(float)
+                latest_price = float(close.iloc[-1])
+                high_52w = float(close.tail(252).max())
+                low_52w = float(close.tail(252).min())
+                shares_outstanding = float(hist['outstanding_share'].iloc[-1])
+
+                if not market_data.get('share_price'):
+                    market_data['share_price'] = latest_price
+                market_data['52w_range'] = f"¥{low_52w:.2f} - ¥{high_52w:.2f}"
+                tech_indicators['Current_Price'] = round(latest_price, 2)
+                tech_indicators['52W_High'] = round(high_52w, 2)
+                tech_indicators['52W_Low'] = round(low_52w, 2)
+
+                # 市值估算 = 价格 × 流通股本
+                if shares_outstanding > 0:
+                    market_data['market_cap'] = latest_price * shares_outstanding / 1e8  # 亿
+
+            # — 同花顺财务摘要：获取 EPS、每股净资产、ROE 来计算 PE/PB —
+            try:
+                abstract_df = ak.stock_financial_abstract_ths(symbol=ticker, indicator='按报告期')
+                time.sleep(1.5)
+                if abstract_df is not None and not abstract_df.empty:
+                    abstract_df = abstract_df.sort_values('报告期', ascending=False)
+                    # 取最近年报
+                    annual = abstract_df[abstract_df['报告期'].astype(str).str.endswith('12-31')]
+                    row = annual.iloc[0] if not annual.empty else abstract_df.iloc[0]
+
+                    eps_val = row.get('基本每股收益')
+                    bvps_val = row.get('每股净资产')
+                    roe_str = str(row.get('净资产收益率', ''))
+
+                    price = market_data.get('share_price', latest_price)
+
+                    if eps_val and str(eps_val) not in ('False', 'nan', '--', ''):
+                        eps = float(eps_val)
+                        if eps > 0:
+                            market_data['fwd_pe'] = f"{price / eps:.1f}x"
+
+                    if bvps_val and str(bvps_val) not in ('False', 'nan', '--', ''):
+                        bvps = float(bvps_val)
+                        if bvps > 0:
+                            market_data['pb_ratio'] = f"{price / bvps:.2f}x"
+
+                    if roe_str and roe_str not in ('False', 'nan', '--', ''):
+                        roe_clean = roe_str.replace('%', '')
+                        try:
+                            market_data['roe'] = f"{float(roe_clean):.1f}%"
+                        except:
+                            pass
+
+                    # 股息率
+                    try:
+                        div_val = row.get('每股未分配利润')
+                        if div_val and str(div_val) not in ('False', 'nan', '--', ''):
+                            # 简化：用上年分红/当前价估算（这里暂用 ROE 近似）
+                            pass
+                    except:
+                        pass
+            except Exception as e2:
+                print(f"  ⚠️ 同花顺财务摘要获取失败: {e2}")
+
+            print(f"✅ A股行情获取成功: 价格=¥{market_data.get('share_price')}, "
+                  f"市值={market_data.get('market_cap', 0):.0f}亿, "
+                  f"PE={market_data.get('fwd_pe', 'N/A')}, PB={market_data.get('pb_ratio', 'N/A')}, "
+                  f"ROE={market_data.get('roe', 'N/A')}")
+        except Exception as e:
+            print(f"⚠️ A股行情数据获取失败: {e}")
+        finally:
+            os.environ.update(saved_proxy)
 
     # 3. 生成图表（包括高级图表）
     print("\n📊 Generating charts...")
@@ -602,6 +695,39 @@ def main():
         }
         print(f"✅ Extracted local metrics from ratios data")
     
+    # 从适配器输出中补充市场数据（company_profile.json / technical_indicators.json）
+    adapter_profile_path = os.path.join(analysis_dir, "company_profile.json")
+    adapter_tech_path = os.path.join(analysis_dir, "technical_indicators.json")
+
+    if os.path.exists(adapter_profile_path):
+        try:
+            with open(adapter_profile_path) as f:
+                adapter_profile = json.load(f)
+            if not market_data.get('share_price') and adapter_profile.get('price'):
+                market_data['share_price'] = adapter_profile['price']
+            if not market_data.get('market_cap') and adapter_profile.get('market_cap'):
+                market_data['market_cap'] = adapter_profile['market_cap'] / 1e9  # 转为 B
+            if not market_data.get('pe_ratio') and adapter_profile.get('pe_ratio'):
+                market_data['fwd_pe'] = f"{adapter_profile['pe_ratio']:.1f}x"
+            if not market_data.get('sector') and adapter_profile.get('sector'):
+                market_data['sector'] = adapter_profile['sector']
+            print(f"✅ Loaded adapter company profile (price: {adapter_profile.get('price')})")
+        except Exception as e:
+            print(f"⚠️ Could not load adapter profile: {e}")
+
+    if os.path.exists(adapter_tech_path):
+        try:
+            with open(adapter_tech_path) as f:
+                adapter_tech = json.load(f)
+            if not market_data.get('share_price') and adapter_tech.get('Current_Price'):
+                market_data['share_price'] = adapter_tech['Current_Price']
+            if adapter_tech.get('52W_High') and adapter_tech.get('52W_Low'):
+                cs = '¥' if is_a_share else '$'
+                market_data['52w_range'] = f"{cs}{adapter_tech['52W_Low']:.2f} - {cs}{adapter_tech['52W_High']:.2f}"
+            print(f"✅ Loaded adapter technical indicators")
+        except Exception as e:
+            print(f"⚠️ Could not load adapter tech indicators: {e}")
+
     # 辅助函数：优先使用命令行参数，其次使用API数据，最后使用本地数据
     def get_value(arg_val, api_key, local_key, default, format_func=None):
         if arg_val is not None:
@@ -622,12 +748,12 @@ def main():
         
         # 市场数据
         'share_price': get_value(args.share_price, 'share_price', None, 'N/A',
-                                lambda x: f"${x:.2f}"),
+                                lambda x: f"{'¥' if is_a_share else '$'}{x:.2f}"),
         'target_price': get_value(args.target_price, 'target_price', None, 'N/A',
-                                 lambda x: f"${x:.2f}"),
+                                 lambda x: f"{'¥' if is_a_share else '$'}{x:.2f}"),
         'rating': 'Hold',  # placeholder, will be derived below
         'market_cap': get_value(args.market_cap, 'market_cap', None, 'N/A',
-                               lambda x: f"${x:,.2f}B"),
+                               lambda x: f"{'¥' if is_a_share else '$'}{x:,.0f}{'亿' if is_a_share else 'B'}"),
         '52w_range': market_data.get('52w_range', 'N/A'),
         'volume': market_data.get('volume', 'N/A'),
         'fwd_pe': get_value(None, 'fwd_pe', 'pe_ratio', 'N/A', None),
@@ -673,10 +799,14 @@ def main():
         
         # 元数据
         'closing_price_date': datetime.now().strftime("%B %d, %Y"),
-        'data_source_text': 'FMP, Company Filings, AI4Finance Estimates',
+        'data_source_text': '公司财报, AKShare, AI4Finance' if is_a_share else 'FMP, Company Filings, AI4Finance Estimates',
         'research_source': args.research_source,
         'analyst_names': args.analyst_names,
         'disclaimer_text': (
+            "本报告仅供参考，不构成任何投资建议。报告中所含信息仅供收件人使用，"
+            "未经书面同意不得向第三方传播或分发。本机构对本文件或其内容的使用不承担任何责任。"
+            "过往业绩不代表未来表现。投资者应在做出任何投资决策前进行独立的尽职调查。"
+        ) if is_a_share else (
             "Disclaimer: The information contained in this document is intended only for use "
             "by the person to whom it has been delivered and should not be disseminated or "
             "distributed to third parties without our prior written consent. This report is "
@@ -701,6 +831,7 @@ def main():
     report_data['analysis_df'] = loaded_data.get('analysis_df', pd.DataFrame())
     
     try:
+        apply_theme(args.style)
         result_path = generate_professional_report(pdf_path, report_data)
         
         print(f"\n{'='*60}")

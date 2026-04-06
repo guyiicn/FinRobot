@@ -3,12 +3,9 @@
 
 import yfinance as yf
 import pandas as pd
-import requests
-import datetime
-import os
-
-# Assuming common_utils.py is in the same parent directory (src/modules)
-from .common_utils import get_api_key, load_config 
+import numpy as np
+from datetime import datetime, timedelta
+from typing import Optional, List, Tuple
 
 def fetch_yfinance_volume(ticker: str, start_date: str, end_date: str) -> pd.DataFrame | None:
     """Fetches historical trading volume data using yfinance."""
@@ -25,260 +22,211 @@ def fetch_yfinance_volume(ticker: str, start_date: str, end_date: str) -> pd.Dat
         print(f"Error fetching yfinance volume for {ticker}: {e}")
         return None
 
-def fetch_fmp_enterprise_value(ticker: str, api_key: str, limit: int = 2000) -> pd.DataFrame | None:
-    """Fetches historical enterprise value from Financial Modeling Prep API."""
-    url = f"https://financialmodelingprep.com/api/v3/enterprise-value/{ticker}?limit={limit}&apikey={api_key}"
+def get_yfinance_income_statement(ticker: str, period: str = "annual", limit: int = 5) -> pd.DataFrame | None:
+    """Fetches income statement data from Yahoo Finance."""
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        if not data:
-            print(f"No EV data returned from FMP for {ticker}.")
+        stock = yf.Ticker(ticker)
+        if period == "annual":
+            df = stock.financials
+        else:
+            df = stock.quarterly_financials
+        
+        if df is None or df.empty:
+            print(f"No income statement data from Yahoo Finance for {ticker}.")
             return None
         
-        df = pd.DataFrame(data)
-        if "date" not in df.columns or "enterpriseValue" not in df.columns:
-            print(f"FMP EV data for {ticker} does not contain expected columns ('date', 'enterpriseValue'). Response: {data}")
-            return None
-            
-        df["date"] = pd.to_datetime(df["date"])
-        df = df[["date", "enterpriseValue"]].sort_values(by="date").reset_index(drop=True)
+        # Transpose to get years as rows
+        df = df.T
+        df.index.name = 'date'
+        df = df.reset_index()
+        df['date'] = pd.to_datetime(df['date'])
+        df['year'] = df['date'].dt.year
+        
+        # Limit to most recent years
+        df = df.sort_values('date', ascending=False).head(limit).reset_index(drop=True)
         return df
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching FMP EV for {ticker}: {e}")
-        return None
-    except (KeyError, ValueError) as e:
-        print(f"Error processing FMP EV data for {ticker}: {e}. Response: {data if 'data' in locals() else 'N/A'}")
+    except Exception as e:
+        print(f"Error fetching Yahoo Finance income statement for {ticker}: {e}")
         return None
 
-def get_fmp_ratios_and_key_metrics(ticker: str, api_key: str, period: str = "annual", limit: int = 5) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
-    """Fetches financial ratios and key metrics from FMP API."""
+def get_yfinance_balance_sheet(ticker: str, period: str = "annual", limit: int = 5) -> pd.DataFrame | None:
+    """Fetches balance sheet data from Yahoo Finance."""
+    try:
+        stock = yf.Ticker(ticker)
+        if period == "annual":
+            df = stock.balance_sheet
+        else:
+            df = stock.quarterly_balance_sheet
+        
+        if df is None or df.empty:
+            print(f"No balance sheet data from Yahoo Finance for {ticker}.")
+            return None
+        
+        # Transpose to get years as rows
+        df = df.T
+        df.index.name = 'date'
+        df = df.reset_index()
+        df['date'] = pd.to_datetime(df['date'])
+        df['year'] = df['date'].dt.year
+        
+        # Limit to most recent years
+        df = df.sort_values('date', ascending=False).head(limit).reset_index(drop=True)
+        return df
+    except Exception as e:
+        print(f"Error fetching Yahoo Finance balance sheet for {ticker}: {e}")
+        return None
+
+def get_yfinance_cash_flow_statement(ticker: str, period: str = "annual", limit: int = 5) -> pd.DataFrame | None:
+    """Fetches cash flow statement data from Yahoo Finance."""
+    try:
+        stock = yf.Ticker(ticker)
+        if period == "annual":
+            df = stock.cashflow
+        else:
+            df = stock.quarterly_cashflow
+        
+        if df is None or df.empty:
+            print(f"No cash flow data from Yahoo Finance for {ticker}.")
+            return None
+        
+        # Transpose to get years as rows
+        df = df.T
+        df.index.name = 'date'
+        df = df.reset_index()
+        df['date'] = pd.to_datetime(df['date'])
+        df['year'] = df['date'].dt.year
+        
+        # Limit to most recent years
+        df = df.sort_values('date', ascending=False).head(limit).reset_index(drop=True)
+        return df
+    except Exception as e:
+        print(f"Error fetching Yahoo Finance cash flow for {ticker}: {e}")
+        return None
+
+def get_yfinance_ratios_and_key_metrics(ticker: str, period: str = "annual", limit: int = 5) -> Tuple[pd.DataFrame | None, pd.DataFrame | None]:
+    """Fetches financial ratios and key metrics from Yahoo Finance."""
     ratios_df, key_metrics_df = None, None
     try:
-        # Ratios
-        ratios_url = f"https://financialmodelingprep.com/api/v3/ratios/{ticker}?period={period}&limit={limit}&apikey={api_key}"
-        response_ratios = requests.get(ratios_url)
-        response_ratios.raise_for_status()
-        ratios_data = response_ratios.json()
-        if ratios_data:
-            ratios_df = pd.DataFrame(ratios_data)
-            ratios_df["date"] = pd.to_datetime(ratios_df["date"])
-            ratios_df["year"] = ratios_df["date"].dt.year
-
-        # Key Metrics
-        key_metrics_url = f"https://financialmodelingprep.com/api/v3/key-metrics/{ticker}?period={period}&limit={limit}&apikey={api_key}"
-        response_key_metrics = requests.get(key_metrics_url)
-        response_key_metrics.raise_for_status()
-        key_metrics_data = response_key_metrics.json()
-        if key_metrics_data:
-            key_metrics_df = pd.DataFrame(key_metrics_data)
-            key_metrics_df["date"] = pd.to_datetime(key_metrics_df["date"])
-            key_metrics_df["year"] = key_metrics_df["date"].dt.year
-
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching FMP ratios/key metrics for {ticker}: {e}")
-    except (KeyError, ValueError) as e:
-        print(f"Error processing FMP ratios/key metrics data for {ticker}: {e}")
+        stock = yf.Ticker(ticker)
+        
+        # Get financial metrics from info
+        info = stock.info
+        if info is None:
+            print(f"No info data from Yahoo Finance for {ticker}.")
+            return None, None
+        
+        # Create ratios DataFrame (limited data available in yfinance)
+        ratios_data = {
+            'date': [datetime.now()],
+            'year': [datetime.now().year],
+            'priceEarningsRatio': [info.get('forwardPE')],
+            'priceToBookRatio': [info.get('priceToBook')],
+            'returnOnEquity': [info.get('returnOnEquity')],
+            'debtEquityRatio': [info.get('debtToEquity')],
+            'currentRatio': [info.get('currentRatio')],
+            'quickRatio': [info.get('quickRatio')]
+        }
+        ratios_df = pd.DataFrame(ratios_data)
+        
+        # Create key metrics DataFrame
+        key_metrics_data = {
+            'date': [datetime.now()],
+            'year': [datetime.now().year],
+            'peRatio': [info.get('forwardPE')],
+            'pbRatio': [info.get('priceToBook')],
+            'enterpriseValue': [info.get('enterpriseValue')],
+            'marketCap': [info.get('marketCap')],
+            'revenueGrowth': [info.get('revenueGrowth')],
+            'earningsGrowth': [info.get('earningsGrowth')]
+        }
+        key_metrics_df = pd.DataFrame(key_metrics_data)
+        
+    except Exception as e:
+        print(f"Error fetching Yahoo Finance ratios/key metrics for {ticker}: {e}")
         
     return ratios_df, key_metrics_df
 
-def get_fmp_income_statement(ticker: str, api_key: str, period: str = "annual", limit: int = 5) -> pd.DataFrame | None:
-    """Fetches income statement data from FMP API."""
-    try:
-        url = f"https://financialmodelingprep.com/api/v3/income-statement/{ticker}?period={period}&limit={limit}&apikey={api_key}"
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        if not data:
-            print(f"No income statement data from FMP for {ticker}.")
-            return None
-        df = pd.DataFrame(data)
-        df["date"] = pd.to_datetime(df["date"])
-        df["year"] = df["date"].dt.year
-        return df
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching FMP income statement for {ticker}: {e}")
-        return None
-    except (KeyError, ValueError) as e:
-        print(f"Error processing FMP income statement data for {ticker}: {e}")
-        return None
-
-def get_fmp_balance_sheet(ticker: str, api_key: str, period: str = "annual", limit: int = 5) -> pd.DataFrame | None:
-    """Fetches balance sheet data from FMP API."""
-    try:
-        url = f"https://financialmodelingprep.com/api/v3/balance-sheet-statement/{ticker}?period={period}&limit={limit}&apikey={api_key}"
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        if not data:
-            print(f"No balance sheet data from FMP for {ticker}.")
-            return None
-        df = pd.DataFrame(data)
-        df["date"] = pd.to_datetime(df["date"])
-        df["year"] = df["date"].dt.year
-        return df
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching FMP balance sheet for {ticker}: {e}")
-        return None
-    except (KeyError, ValueError) as e:
-        print(f"Error processing FMP balance sheet data for {ticker}: {e}")
-        return None
-
-def get_fmp_cash_flow_statement(ticker: str, api_key: str, period: str = "annual", limit: int = 5) -> pd.DataFrame | None:
-    """Fetches cash flow statement data from FMP API."""
-    try:
-        url = f"https://financialmodelingprep.com/api/v3/cash-flow-statement/{ticker}?period={period}&limit={limit}&apikey={api_key}"
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        if not data:
-            print(f"No cash flow data from FMP for {ticker}.")
-            return None
-        df = pd.DataFrame(data)
-        df["date"] = pd.to_datetime(df["date"])
-        df["year"] = df["date"].dt.year
-        return df
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching FMP cash flow for {ticker}: {e}")
-        return None
-    except (KeyError, ValueError) as e:
-        print(f"Error processing FMP cash flow data for {ticker}: {e}")
-        return None
-
-def get_comprehensive_financial_data(ticker: str, api_key: str, period: str = "annual", limit: int = 5) -> dict:
-    """Fetches all three financial statements for a company."""
+def get_comprehensive_financial_data(ticker: str, api_key: str = None, period: str = "annual", limit: int = 5) -> dict:
+    """Fetches all three financial statements for a company using Yahoo Finance."""
     print(f"Fetching comprehensive financial data for {ticker}...")
     
     financial_data = {
-        'income_statement': get_fmp_income_statement(ticker, api_key, period, limit),
-        'balance_sheet': get_fmp_balance_sheet(ticker, api_key, period, limit),
-        'cash_flow': get_fmp_cash_flow_statement(ticker, api_key, period, limit),
+        'income_statement': get_yfinance_income_statement(ticker, period, limit),
+        'balance_sheet': get_yfinance_balance_sheet(ticker, period, limit),
+        'cash_flow': get_yfinance_cash_flow_statement(ticker, period, limit),
         'ratios': None,
         'key_metrics': None
     }
     
     # Also get ratios and key metrics
-    ratios_df, key_metrics_df = get_fmp_ratios_and_key_metrics(ticker, api_key, period, limit)
+    ratios_df, key_metrics_df = get_yfinance_ratios_and_key_metrics(ticker, period, limit)
     financial_data['ratios'] = ratios_df
     financial_data['key_metrics'] = key_metrics_df
     
     return financial_data
 
-def combine_peer_financial_data(tickers: list[str], api_key: str, years_limit: int = 5) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """Combines EBITDA and EV/EBITDA for a list of peer tickers."""
-    all_peers_data = {}
-    for ticker in tickers:
-        income_df = get_fmp_income_statement(ticker, api_key, limit=years_limit)
-        _, key_metrics_df = get_fmp_ratios_and_key_metrics(ticker, api_key, limit=years_limit)
-        
-        ticker_data = {}
-        if income_df is not None and not income_df.empty:
-            for _, row in income_df.iterrows():
-                year = row["year"]
-                if year not in ticker_data: ticker_data[year] = {}
-                ticker_data[year]["EBITDA"] = row.get("ebitda")
-
-        if key_metrics_df is not None and not key_metrics_df.empty:
-            for _, row in key_metrics_df.iterrows():
-                year = row["year"]
-                if year not in ticker_data: ticker_data[year] = {}
-                ticker_data[year]["EV/EBITDA"] = row.get("enterpriseValueOverEBITDA")
-        
-        if ticker_data:
-            all_peers_data[ticker] = ticker_data
-
-    ebitda_records = []
-    for ticker, yearly_data in all_peers_data.items():
-        for year, metrics in yearly_data.items():
-            if "EBITDA" in metrics and metrics["EBITDA"] is not None:
-                ebitda_records.append({"ticker": ticker, "year": year, "EBITDA": metrics["EBITDA"]})
-    df_ebitda_all = pd.DataFrame(ebitda_records)
-    df_ebitda_pivot = pd.DataFrame()
-    if not df_ebitda_all.empty:
-        df_ebitda_pivot = df_ebitda_all.pivot(index="year", columns="ticker", values="EBITDA").sort_index()
-
-    ev_ebitda_records = []
-    for ticker, yearly_data in all_peers_data.items():
-        for year, metrics in yearly_data.items():
-            if "EV/EBITDA" in metrics and metrics["EV/EBITDA"] is not None:
-                ev_ebitda_records.append({"ticker": ticker, "year": year, "EV/EBITDA": metrics["EV/EBITDA"]})
-    df_ev_ebitda_all = pd.DataFrame(ev_ebitda_records)
-    df_ev_ebitda_pivot = pd.DataFrame()
-    if not df_ev_ebitda_all.empty:
-        df_ev_ebitda_pivot = df_ev_ebitda_all.pivot(index="year", columns="ticker", values="EV/EBITDA").sort_index()
-        
-    return df_ebitda_pivot, df_ev_ebitda_pivot
-
-def project_ebitda_for_peers(df_ebitda_historical: pd.DataFrame, num_projection_years: int = 1) -> pd.DataFrame:
-    """Projects EBITDA for future years based on average historical YoY growth."""
-    df_projected = df_ebitda_historical.copy()
-    if df_projected.empty:
-        return df_projected
-
-    last_historical_year = df_projected.index.max()
-    
-    for company in df_projected.columns:
-        historical_values = df_projected[company].dropna()
-        if len(historical_values) < 2:
-            print(f"Not enough historical EBITDA data for {company} to project.")
-            continue
-        
-        growth_rates = historical_values.pct_change().dropna()
-        if growth_rates.empty or all(g == 0 for g in growth_rates):
-            avg_growth_rate = 0 
-        else:
-            avg_growth_rate = growth_rates.mean()
-
-        current_ebitda = historical_values.iloc[-1]
-        for i in range(1, num_projection_years + 1):
-            projection_year = last_historical_year + i
-            current_ebitda = current_ebitda * (1 + avg_growth_rate)
-            df_projected.loc[projection_year, company] = current_ebitda
-            
-    return df_projected.sort_index()
-
-def get_fmp_current_price(ticker: str, api_key: str) -> float | None:
-    """Fetches the latest stock price from Financial Modeling Prep API."""
-    url = f"https://financialmodelingprep.com/api/v3/quote-short/{ticker}?apikey={api_key}"
+def get_yfinance_current_price(ticker: str, api_key: str = None) -> float | None:
+    """Fetches the latest stock price from Yahoo Finance."""
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        if data and isinstance(data, list) and len(data) > 0:
-            quote_data = data[0]
-            if "price" in quote_data and quote_data["price"] is not None:
-                return float(quote_data["price"])
-            else:
-                url_full_quote = f"https://financialmodelingprep.com/api/v3/quote/{ticker}?apikey={api_key}"
-                response_full = requests.get(url_full_quote)
-                response_full.raise_for_status()
-                data_full = response_full.json()
-                if data_full and isinstance(data_full, list) and len(data_full) > 0:
-                    quote_data_full = data_full[0]
-                    if "price" in quote_data_full and quote_data_full["price"] is not None:
-                        return float(quote_data_full["price"])
-                    elif "previousClose" in quote_data_full and quote_data_full["previousClose"] is not None:
-                        print(f"Current price not available for {ticker} via /quote or /quote-short, using previous close: {quote_data_full['previousClose']}")
-                        return float(quote_data_full["previousClose"])
-                print(f"Price data not found in FMP quote for {ticker}. Response: {quote_data}")
-                return None
-        else:
-            print(f"No data or unexpected format returned from FMP /quote-short for {ticker}. Response: {data}")
-            return None
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching FMP current price for {ticker}: {e}")
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        if info:
+            price = info.get('currentPrice') or info.get('regularMarketPrice')
+            if price:
+                return float(price)
+        
+        # Fallback to historical data
+        hist = stock.history(period="1d")
+        if not hist.empty:
+            return float(hist['Close'].iloc[-1])
+            
         return None
-    except (KeyError, ValueError, TypeError) as e:
-        print(f"Error processing FMP current price data for {ticker}: {e}. Response: {data if 'data' in locals() else 'N/A'}")
+    except Exception as e:
+        print(f"Error fetching Yahoo Finance current price for {ticker}: {e}")
         return None
 
-def get_analyst_insights(ticker: str, api_key: str = None) -> tuple[str | None, float | None]:
+def get_yfinance_company_profile(ticker: str, api_key: str = None) -> dict | None:
+    """Fetches comprehensive company profile data from Yahoo Finance."""
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        
+        if info is None:
+            print(f"No profile data returned for {ticker}")
+            return None
+        
+        profile = {
+            'symbol': ticker,
+            'price': info.get('currentPrice'),
+            'marketCap': info.get('marketCap'),
+            'beta': info.get('beta'),
+            'lastDiv': info.get('lastDividendValue'),
+            'volAvg': info.get('averageVolume'),
+            'companyName': info.get('longName') or info.get('shortName'),
+            'sector': info.get('sector'),
+            'industry': info.get('industry'),
+            'website': info.get('website'),
+            'description': info.get('longBusinessSummary'),
+            'ceo': info.get('fullTimeEmployees'),  # yfinance doesn't have CEO directly
+            'country': info.get('country'),
+            'fullTimeEmployees': info.get('fullTimeEmployees'),
+            'exchange': info.get('exchange'),
+            '52w_range': f"{info.get('fiftyTwoWeekLow')}-{info.get('fiftyTwoWeekHigh')}" if info.get('fiftyTwoWeekLow') and info.get('fiftyTwoWeekHigh') else None,
+            'sharesOutstanding': info.get('sharesOutstanding'),
+            'ipoDate': info.get('ipoDate')
+        }
+        return profile
+    except Exception as e:
+        print(f"Error fetching company profile for {ticker}: {e}")
+        return None
+
+def get_analyst_insights(ticker: str, api_key: str = None) -> Tuple[str | None, float | None]:
     """
-    Fetches analyst rating and target price using FMP API.
+    Fetches analyst rating and target price using Yahoo Finance.
     
     Args:
         ticker: Stock ticker symbol
-        api_key: FMP API key (optional, will try to use existing functions if not provided)
+        api_key: Not used for Yahoo Finance (kept for compatibility)
     
     Returns:
         Tuple of (rating, target_price)
@@ -287,143 +235,74 @@ def get_analyst_insights(ticker: str, api_key: str = None) -> tuple[str | None, 
     target_price = None
     
     try:
-        # Try to get rating from FMP
-        if api_key:
-            rating = get_fmp_analyst_rating(ticker, api_key)
-            target_price = get_fmp_target_price(ticker, api_key)
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        
+        if info:
+            # Get target price
+            target_price = info.get('targetMeanPrice')
+            if target_price:
+                target_price = float(target_price)
+            
+            # Get analyst recommendation (1=Strong Buy, 5=Sell)
+            recommendation = info.get('recommendationKey')
+            if recommendation:
+                rating = str(recommendation).title()
             
             if rating:
                 print(f"[INFO] For {ticker} - Rating: {rating}")
             if target_price:
                 print(f"[INFO] For {ticker} - Target Price: {target_price}")
-        else:
-            print(f"[WARN] No API key provided for get_analyst_insights. Skipping.")
             
     except Exception as e:
         print(f"[ERROR] Error in get_analyst_insights for {ticker}: {e}")
         
     return rating, target_price
 
-def get_fmp_target_price(ticker: str, api_key: str) -> float | None:
-    """Fetches the latest analyst target price from Financial Modeling Prep API v4."""
-    url = f"https://financialmodelingprep.com/api/v4/price-target?symbol={ticker}&apikey={api_key}"
+def get_yfinance_target_price(ticker: str, api_key: str = None) -> float | None:
+    """Fetches the latest analyst target price from Yahoo Finance."""
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        if data and isinstance(data, list) and len(data) > 0:
-            for item in data:
-                try:
-                    item['parsedDate'] = pd.to_datetime(item.get('publishedDate'))
-                except Exception as e:
-                    print(f"Warning: Could not parse publishedDate '{item.get('publishedDate')}' for {ticker}: {e}")
-                    item['parsedDate'] = None
-            
-            valid_data = [item for item in data if item['parsedDate'] is not None]
-            
-            if not valid_data:
-                print(f"No valid published dates found in FMP target price data for {ticker}.")
-                return None
-
-            latest_target_info = sorted(valid_data, key=lambda x: x['parsedDate'], reverse=True)[0]
-            
-            if "priceTarget" in latest_target_info and latest_target_info["priceTarget"] is not None:
-                return float(latest_target_info["priceTarget"])
-            else:
-                print(f"Price target not found in the latest FMP data for {ticker}. Data: {latest_target_info}")
-                return None
-        else:
-            print(f"No target price data or unexpected format returned from FMP for {ticker}. Response: {data}")
-            return None
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching FMP target price for {ticker}: {e}")
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        if info:
+            target_price = info.get('targetMeanPrice')
+            if target_price:
+                return float(target_price)
         return None
-    except (KeyError, ValueError, TypeError) as e:
-        print(f"Error processing FMP target price data for {ticker}: {e}. Response: {data if 'data' in locals() else 'N/A'}")
+    except Exception as e:
+        print(f"Error fetching Yahoo Finance target price for {ticker}: {e}")
         return None
 
-def get_fmp_analyst_rating(ticker: str, api_key: str) -> str | None:
-    """Fetches the latest analyst rating (e.g., Buy, Hold, Sell) from Financial Modeling Prep API v4."""
-    url = f"https://financialmodelingprep.com/api/v4/upgrades-downgrades?symbol={ticker}&apikey={api_key}"
+def get_yfinance_analyst_rating(ticker: str, api_key: str = None) -> str | None:
+    """Fetches the latest analyst rating from Yahoo Finance."""
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        if data and isinstance(data, list) and len(data) > 0:
-            for item in data:
-                try:
-                    item['parsedDate'] = pd.to_datetime(item.get('publishedDate'))
-                except Exception as e:
-                    print(f"Warning: Could not parse publishedDate '{item.get('publishedDate')}' for {ticker}: {e}")
-                    item['parsedDate'] = None
-            
-            valid_data = [item for item in data if item['parsedDate'] is not None]
-
-            if not valid_data:
-                print(f"No valid published dates found in FMP analyst rating data for {ticker}.")
-                return None
-
-            latest_rating_info = sorted(valid_data, key=lambda x: x['parsedDate'], reverse=True)[0]
-            
-            if "newGrade" in latest_rating_info and latest_rating_info["newGrade"]:
-                return str(latest_rating_info["newGrade"])
-            elif "action" in latest_rating_info and latest_rating_info["action"]:
-                 print(f"newGrade not found, using action: {latest_rating_info['action']} for {ticker}")
-                 return str(latest_rating_info["action"])
-            else:
-                print(f"Analyst rating (newGrade or action) not found in the latest FMP data for {ticker}. Data: {latest_rating_info}")
-                return None
-        else:
-            print(f"No analyst rating data or unexpected format returned from FMP for {ticker}. Response: {data}")
-            return None
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching FMP analyst rating for {ticker}: {e}")
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        if info:
+            recommendation = info.get('recommendationKey')
+            if recommendation:
+                return str(recommendation).title()
         return None
-    except (KeyError, ValueError, TypeError) as e:
-        print(f"Error processing FMP analyst rating data for {ticker}: {e}. Response: {data if 'data' in locals() else 'N/A'}")
+    except Exception as e:
+        print(f"Error fetching Yahoo Finance analyst rating for {ticker}: {e}")
         return None
 
-def get_fmp_company_profile(ticker: str, api_key: str) -> dict | None:
-    """Fetches comprehensive company profile data from FMP API."""
-    url = f"https://financialmodelingprep.com/api/v3/profile/{ticker}?apikey={api_key}"
+def get_yfinance_market_cap(ticker: str, api_key: str = None) -> float | None:
+    """Fetches current market capitalization from Yahoo Finance."""
     try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        if data and isinstance(data, list) and len(data) > 0:
-            return data[0]  # Profile returns a list with one item
-        else:
-            print(f"No profile data returned for {ticker}")
-            return None
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching company profile for {ticker}: {e}")
+        stock = yf.Ticker(ticker)
+        info = stock.info
+        if info:
+            market_cap = info.get('marketCap')
+            if market_cap:
+                return float(market_cap)
         return None
-    except (KeyError, ValueError, TypeError) as e:
-        print(f"Error processing company profile data for {ticker}: {e}")
-        return None
-
-def get_fmp_market_cap(ticker: str, api_key: str) -> float | None:
-    """Fetches current market capitalization from FMP API."""
-    url = f"https://financialmodelingprep.com/api/v3/market-capitalization/{ticker}?apikey={api_key}"
-    try:
-        response = requests.get(url)
-        response.raise_for_status()
-        data = response.json()
-        if data and isinstance(data, list) and len(data) > 0:
-            market_cap = data[0].get('marketCap')
-            return float(market_cap) if market_cap else None
-        else:
-            print(f"No market cap data returned for {ticker}")
-            return None
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         print(f"Error fetching market cap for {ticker}: {e}")
         return None
-    except (KeyError, ValueError, TypeError) as e:
-        print(f"Error processing market cap data for {ticker}: {e}")
-        return None
 
-def get_comprehensive_company_metrics(ticker: str, api_key: str) -> dict:
-    """Fetches all key company metrics needed for equity report from FMP API."""
+def get_comprehensive_company_metrics(ticker: str, api_key: str = None) -> dict:
+    """Fetches all key company metrics needed for equity report from Yahoo Finance."""
     print(f"Fetching comprehensive company metrics for {ticker}...")
     
     metrics = {
@@ -446,108 +325,70 @@ def get_comprehensive_company_metrics(ticker: str, api_key: str) -> dict:
         'shares_outstanding': None,
     }
     
-    # 1. Get current price and basic quote data
-    current_price = get_fmp_current_price(ticker, api_key)
-    if current_price:
-        metrics['share_price'] = current_price
-    
-    # 2. Get target price and rating
-    target_price = get_fmp_target_price(ticker, api_key)
-    if target_price:
-        metrics['target_price'] = target_price
-    
-    rating = get_fmp_analyst_rating(ticker, api_key)
-    if rating:
-        metrics['rating'] = rating
-    
-    # 3. Get company profile data
-    profile = get_fmp_company_profile(ticker, api_key)
-    if profile:
-        metrics['market_cap'] = profile.get('mktCap', 0) / 1e9 if profile.get('mktCap') else None  # Convert to billions
-        metrics['volume'] = profile.get('volAvg', 0) / 1e6 if profile.get('volAvg') else None  # Convert to millions
-        metrics['beta'] = profile.get('beta')
-        metrics['sector'] = profile.get('sector', 'N/A')
-        metrics['industry'] = profile.get('industry', 'N/A')
-        metrics['exchange'] = profile.get('exchangeShortName', 'N/A')
-    
-    # 4. Get detailed quote data (volume, 52w range, shares outstanding)
     try:
-        quote_url = f"https://financialmodelingprep.com/api/v3/quote/{ticker}?apikey={api_key}"
-        response = requests.get(quote_url)
-        response.raise_for_status()
-        quote_data = response.json()
-        if quote_data and isinstance(quote_data, list) and len(quote_data) > 0:
-            quote = quote_data[0]
-            # Volume
-            if not metrics['volume']:
-                avg_volume = quote.get('avgVolume')
-                if avg_volume:
-                    metrics['volume'] = avg_volume / 1e6  # Convert to millions
-            # 52-week range
-            year_high = quote.get('yearHigh')
-            year_low = quote.get('yearLow')
-            if year_high is not None and year_low is not None:
-                metrics['52w_range'] = f"${year_low:.2f} - ${year_high:.2f}"
-            # Shares outstanding
-            shares_out = quote.get('sharesOutstanding')
-            if shares_out:
-                metrics['shares_outstanding'] = float(shares_out)
-    except Exception as e:
-        print(f"Warning: Could not fetch quote data: {e}")
-    
-    # 5. Get financial ratios
-    try:
-        ratios_df, key_metrics_df = get_fmp_ratios_and_key_metrics(ticker, api_key, limit=1)
+        stock = yf.Ticker(ticker)
+        info = stock.info
         
-        if ratios_df is not None and not ratios_df.empty:
-            latest_ratios = ratios_df.iloc[0]
-            metrics['pb_ratio'] = latest_ratios.get('priceToBookRatio')
-            metrics['roe'] = latest_ratios.get('returnOnEquity')
-            if latest_ratios.get('returnOnEquity'):
-                metrics['roe'] = latest_ratios['returnOnEquity'] * 100  # Convert to percentage
-            metrics['net_debt_to_equity'] = latest_ratios.get('debtEquityRatio')
-            # Try to get forward P/E from ratios
-            metrics['fwd_pe'] = latest_ratios.get('priceEarningsRatio')
+        if info is None:
+            print(f"No info data from Yahoo Finance for {ticker}.")
+            return metrics
         
-        if key_metrics_df is not None and not key_metrics_df.empty:
-            latest_key_metrics = key_metrics_df.iloc[0]
-            # Override with key metrics if available
-            if latest_key_metrics.get('peRatio'):
-                metrics['fwd_pe'] = latest_key_metrics['peRatio']
-            if latest_key_metrics.get('pbRatio'):
-                metrics['pb_ratio'] = latest_key_metrics['pbRatio']
-    except Exception as e:
-        print(f"Warning: Could not fetch financial ratios: {e}")
-    
-    # 6. Get dividend yield from profile or financial data
-    if profile and profile.get('lastDiv'):
-        if current_price and profile['lastDiv'] > 0:
-            # Calculate dividend yield: (annual dividend / current price) * 100
-            annual_dividend = profile['lastDiv']  # Assuming this is annual
-            metrics['dividend_yield'] = (annual_dividend / current_price) * 100
-    
-    # 7. Get shares outstanding for free float calculation (approximate)
-    try:
-        if profile and profile.get('sharesOutstanding'):
-            # Most companies have high free float, use a reasonable estimate
-            metrics['free_float'] = 95.0  # Default assumption for large companies
-    except Exception as e:
-        print(f"Warning: Could not calculate free float: {e}")
-    
-    # Fill in any remaining None values with sensible defaults
-    if metrics['free_float'] is None:
+        # 1. Current price
+        metrics['share_price'] = info.get('currentPrice') or info.get('regularMarketPrice')
+        
+        # 2. Target price and rating
+        metrics['target_price'] = info.get('targetMeanPrice')
+        metrics['rating'] = str(info.get('recommendationKey')).title() if info.get('recommendationKey') else None
+        
+        # 3. Market cap and volume
+        metrics['market_cap'] = info.get('marketCap')
+        metrics['volume'] = info.get('averageVolume')
+        
+        # 4. Ratios
+        metrics['fwd_pe'] = info.get('forwardPE')
+        metrics['pb_ratio'] = info.get('priceToBook')
+        metrics['roe'] = info.get('returnOnEquity')
+        metrics['net_debt_to_equity'] = info.get('debtToEquity')
+        
+        # 5. Sector and industry
+        metrics['beta'] = info.get('beta')
+        metrics['sector'] = info.get('sector')
+        metrics['industry'] = info.get('industry')
+        metrics['exchange'] = info.get('exchange')
+        
+        # 6. 52-week range
+        low = info.get('fiftyTwoWeekLow')
+        high = info.get('fiftyTwoWeekHigh')
+        if low and high:
+            metrics['52w_range'] = f"${low:.2f} - ${high:.2f}"
+        
+        # 7. Shares outstanding
+        metrics['shares_outstanding'] = info.get('sharesOutstanding')
+        
+        # 8. Dividend yield
+        if metrics['share_price'] and info.get('dividendYield'):
+            metrics['dividend_yield'] = info.get('dividendYield') * 100
+        
+        # 9. Free float (default estimate)
         metrics['free_float'] = 95.0
-    if metrics['sector'] is None:
-        metrics['sector'] = 'Technology'  # Default for many stocks
-    if metrics['rating'] is None:
-        metrics['rating'] = 'N/A'
+        
+        # Fill in defaults
+        if metrics['free_float'] is None:
+            metrics['free_float'] = 95.0
+        if metrics['sector'] is None:
+            metrics['sector'] = 'Technology'
+        if metrics['rating'] is None:
+            metrics['rating'] = 'N/A'
+        
+        print(f"Successfully fetched metrics for {ticker}")
+        
+    except Exception as e:
+        print(f"Warning: Could not fetch company metrics: {e}")
     
-    print(f"Successfully fetched metrics for {ticker}")
     return metrics
 
-
-def get_technical_indicators(ticker: str, api_key: str) -> dict:
-    """从 FMP 获取历史价格并计算 SMA50/200、RSI14、MACD、成交量信号。"""
+def get_technical_indicators(ticker: str, api_key: str = None) -> dict:
+    """从 Yahoo Finance 获取历史价格并计算 SMA50/200、RSI14、MACD、成交量信号。"""
     result = {
         'sma50': None, 'sma200': None, 'rsi14': None,
         'macd': None, 'macd_signal': None, 'macd_histogram': None,
@@ -558,17 +399,14 @@ def get_technical_indicators(ticker: str, api_key: str) -> dict:
         'overall_signal': 'N/A',
     }
     try:
-        import numpy as np
-        url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{ticker}?timeseries=250&apikey={api_key}"
-        resp = requests.get(url, timeout=15)
-        data = resp.json()
-        prices = data.get('historical', [])
-        if len(prices) < 50:
+        stock = yf.Ticker(ticker)
+        df = stock.history(period="1y")
+        
+        if df is None or df.empty or len(df) < 50:
             return result
 
-        df = pd.DataFrame(prices).sort_values('date').reset_index(drop=True)
-        close = df['close'].astype(float)
-        volume = df['volume'].astype(float)
+        close = df['Close'].astype(float)
+        volume = df['Volume'].astype(float)
 
         result['price'] = close.iloc[-1]
 
@@ -660,14 +498,13 @@ def get_technical_indicators(ticker: str, api_key: str) -> dict:
         print(f"⚠️ Could not compute technical indicators: {e}")
     return result
 
-
-def get_company_news(ticker: str, api_key: str, days_back: int = 5, limit: int = 50) -> list[dict] | None:
+def get_company_news(ticker: str, api_key: str = None, days_back: int = 5, limit: int = 50) -> List[dict] | None:
     """
-    Fetches recent company news from FMP API.
+    Fetches recent company news from Yahoo Finance.
     
     Args:
         ticker: Stock ticker symbol
-        api_key: FMP API key
+        api_key: Not used for Yahoo Finance
         days_back: Number of days to look back for news (default: 5)
         limit: Maximum number of news articles to fetch (default: 50)
     
@@ -675,90 +512,152 @@ def get_company_news(ticker: str, api_key: str, days_back: int = 5, limit: int =
         List of dictionaries containing filtered news data, or None if error occurs
     """
     try:
-        from datetime import datetime, timedelta
+        stock = yf.Ticker(ticker)
+        news = stock.news
         
-        # Calculate date range
-        end_date = datetime.now()
-        start_date = end_date - timedelta(days=days_back)
-        
-        # Format dates for API
-        from_date = start_date.strftime('%Y-%m-%d')
-        to_date = end_date.strftime('%Y-%m-%d')
-        
-        # FMP Stock News API endpoint
-        url = f"https://financialmodelingprep.com/api/v3/stock_news"
-        params = {
-            'tickers': ticker,
-            'from': from_date,
-            'to': to_date,
-            'limit': limit,
-            'apikey': api_key
-        }
-        
-        print(f"Fetching news for {ticker} from {from_date} to {to_date}...")
-        response = requests.get(url, params=params)
-        response.raise_for_status()
-        data = response.json()
-        
-        if not data:
-            print(f"No news data returned from FMP for {ticker}.")
+        if not news:
+            print(f"No news data returned from Yahoo Finance for {ticker}.")
             return None
         
         # Filter to keep only required fields
         filtered_news = []
-        for article in data:
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days_back)
+        
+        for article in news:
+            # Parse publish date
+            pub_date_str = article.get('providerPublishTime')
+            if pub_date_str:
+                pub_date = datetime.fromtimestamp(pub_date_str)
+            else:
+                continue
+            
+            # Filter by date
+            if pub_date < start_date:
+                continue
+            
             filtered_article = {
-                'symbol': article.get('symbol'),
+                'symbol': ticker,
                 'title': article.get('title'),
-                'publishedDate': article.get('publishedDate'),
-                'text': article.get('text'),
-                'site': article.get('site'),
-                'url': article.get('url')
+                'publishedDate': pub_date.strftime('%Y-%m-%d %H:%M:%S'),
+                'text': article.get('summary', '')[:500],  # Truncate summary
+                'site': article.get('publisher'),
+                'url': article.get('link')
             }
             filtered_news.append(filtered_article)
+            
+            if len(filtered_news) >= limit:
+                break
         
         print(f"Successfully fetched {len(filtered_news)} news articles for {ticker}")
         return filtered_news
         
-    except requests.exceptions.RequestException as e:
+    except Exception as e:
         print(f"Error fetching news for {ticker}: {e}")
         return None
-    except Exception as e:
-        print(f"Unexpected error fetching news for {ticker}: {e}")
-        return None
 
+# Compatibility aliases for FMP function names
+get_fmp_income_statement = get_yfinance_income_statement
+get_fmp_balance_sheet = get_yfinance_balance_sheet
+get_fmp_cash_flow_statement = get_yfinance_cash_flow_statement
+get_fmp_ratios_and_key_metrics = get_yfinance_ratios_and_key_metrics
+get_fmp_current_price = get_yfinance_current_price
+get_fmp_company_profile = get_yfinance_company_profile
+get_fmp_target_price = get_yfinance_target_price
+get_fmp_analyst_rating = get_yfinance_analyst_rating
+get_fmp_market_cap = get_yfinance_market_cap
+
+# Keep FMP enterprise value function but it won't work with free plan
+def fetch_fmp_enterprise_value(ticker: str, api_key: str, limit: int = 2000) -> pd.DataFrame | None:
+    """Placeholder for FMP enterprise value (not supported on free plan)."""
+    print(f"Warning: FMP enterprise value not available on free plan for {ticker}")
+    return None
+
+def combine_peer_financial_data(tickers: List[str], api_key: str, years_limit: int = 5) -> Tuple[pd.DataFrame, pd.DataFrame]:
+    """Combines EBITDA and EV/EBITDA for a list of peer tickers using Yahoo Finance."""
+    all_peers_data = {}
+    for ticker in tickers:
+        try:
+            stock = yf.Ticker(ticker)
+            # Try to get EBITDA from financials
+            financials = stock.financials
+            if financials is not None and not financials.empty:
+                # Check if EBITDA is available
+                if 'EBITDA' in financials.index:
+                    ebitda_data = financials.loc['EBITDA']
+                    for date, value in ebitda_data.items():
+                        year = date.year
+                        if ticker not in all_peers_data:
+                            all_peers_data[ticker] = {}
+                        if year not in all_peers_data[ticker]:
+                            all_peers_data[ticker][year] = {}
+                        all_peers_data[ticker][year]['EBITDA'] = value
+        except Exception as e:
+            print(f"Error fetching peer data for {ticker}: {e}")
+            continue
+    
+    ebitda_records = []
+    for ticker, yearly_data in all_peers_data.items():
+        for year, metrics in yearly_data.items():
+            if "EBITDA" in metrics and metrics["EBITDA"] is not None:
+                ebitda_records.append({"ticker": ticker, "year": year, "EBITDA": metrics["EBITDA"]})
+    
+    df_ebitda_all = pd.DataFrame(ebitda_records)
+    df_ebitda_pivot = pd.DataFrame()
+    if not df_ebitda_all.empty:
+        df_ebitda_pivot = df_ebitda_all.pivot(index="year", columns="ticker", values="EBITDA").sort_index()
+    
+    # EV/EBITDA - not easily available from Yahoo Finance
+    df_ev_ebitda_pivot = pd.DataFrame()
+    
+    return df_ebitda_pivot, df_ev_ebitda_pivot
+
+def project_ebitda_for_peers(df_ebitda_historical: pd.DataFrame, num_projection_years: int = 1) -> pd.DataFrame:
+    """Projects EBITDA for future years based on average historical YoY growth."""
+    df_projected = df_ebitda_historical.copy()
+    if df_projected.empty:
+        return df_projected
+
+    last_historical_year = df_projected.index.max()
+    
+    for company in df_projected.columns:
+        historical_values = df_projected[company].dropna()
+        if len(historical_values) < 2:
+            print(f"Not enough historical EBITDA data for {company} to project.")
+            continue
+        
+        growth_rates = historical_values.pct_change().dropna()
+        if growth_rates.empty or all(g == 0 for g in growth_rates):
+            avg_growth_rate = 0 
+        else:
+            avg_growth_rate = growth_rates.mean()
+
+        current_ebitda = historical_values.iloc[-1]
+        for i in range(1, num_projection_years + 1):
+            projection_year = last_historical_year + i
+            current_ebitda = current_ebitda * (1 + avg_growth_rate)
+            df_projected.loc[projection_year, company] = current_ebitda
+            
+    return df_projected.sort_index()
 
 if __name__ == "__main__":
-    print("Testing market_data_api.py...")
-    current_script_dir = os.path.dirname(os.path.abspath(__file__))
-    config_path_test = os.path.join(current_script_dir, "..", "..", "config", "config.ini")
+    print("Testing market_data_api.py with Yahoo Finance...")
     
-    fmp_api_key_for_test = "YOUR_FMP_KEY_HERE" 
-    if not os.path.exists(config_path_test):
-        print(f"Test config file not found at {config_path_test}. Creating a dummy one for structure test.")
-        os.makedirs(os.path.dirname(config_path_test), exist_ok=True)
-        with open(config_path_test, "w") as f:
-            f.write("[API_KEYS]\n")
-            f.write("fmp_api_key = YOUR_FMP_KEY_HERE\n")
-        print("Please put a valid FMP API key in the dummy config.ini to run live tests.")
-    else:
-        try:
-            test_config = load_config(config_path_test)
-            fmp_api_key_for_test = get_api_key(test_config, section="API_KEYS", key="fmp_api_key")
-        except Exception as e:
-            print(f"Error loading test config: {e}")
-
-    if fmp_api_key_for_test != "YOUR_FMP_KEY_HERE" and fmp_api_key_for_test:
-        print(f"\nUsing FMP API Key: {fmp_api_key_for_test[:5]}... for live FMP tests")
-        
-        print("\nTesting get_comprehensive_financial_data for AAPL...")
-        financial_data = get_comprehensive_financial_data("AAPL", fmp_api_key_for_test)
-        for statement_type, df in financial_data.items():
-            if df is not None and not df.empty:
-                print(f"{statement_type}: {len(df)} years of data")
+    print("\nTesting get_comprehensive_financial_data for AAPL...")
+    financial_data = get_comprehensive_financial_data("AAPL")
+    for statement_type, df in financial_data.items():
+        if df is not None and not df.empty:
+            if isinstance(df, pd.DataFrame):
+                print(f"{statement_type}: {len(df)} rows of data")
             else:
-                print(f"{statement_type}: No data")
-    else:
-        print("\nSkipping live FMP API tests. Please provide a valid API key in config.ini.")
+                print(f"{statement_type}: Data available")
+        else:
+            print(f"{statement_type}: No data")
+    
+    print("\nTesting get_comprehensive_company_metrics for AAPL...")
+    metrics = get_comprehensive_company_metrics("AAPL")
+    for key, value in metrics.items():
+        if value is not None:
+            print(f"  {key}: {value}")
 
     print("\nmarket_data_api.py tests complete.")

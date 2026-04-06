@@ -22,6 +22,11 @@ from modules.catalyst_analyzer import CatalystAnalyzer
 from modules.news_integrator import NewsIntegrator, get_enhanced_company_news
 from modules.retail_sentiment_client import RetailSentimentClient
 
+# 数据源适配器
+import sys
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+from finrobot_equity.core.src.data_sources import get_adapter
+
 def main():
     parser = argparse.ArgumentParser(description="Generate financial analysis data using FMP API instead of PDF extraction.")
     
@@ -63,6 +68,14 @@ def main():
 
     # API Options
     parser.add_argument("--period", type=str, default="annual", choices=["annual", "quarterly"], help="Data period (annual or quarterly)")
+
+    # Data Source Selection
+    parser.add_argument("--data-source", type=str, default="auto", choices=["auto", "yahoo", "akshare", "eastmoney", "ths", "fmp"],
+                       help="Data source: 'yahoo' (US), 'akshare' (A/sina), 'ths' (A/同花顺), 'eastmoney' (A/em), 'fmp' (paid), 'auto'")
+
+    # Language
+    parser.add_argument("--language", type=str, default="zh", choices=["zh", "en"],
+                       help="Report language: 'zh' (Chinese, default), 'en' (English)")
 
     args = parser.parse_args()
 
@@ -112,43 +125,81 @@ def main():
         print("openai_base_url = https://api.xxx.com/v1  # optional, for proxy services")
         return
 
-    print(f"Starting FMP API-based financial analysis for {args.company_name} ({args.company_ticker})")
+    print(f"Starting financial analysis for {args.company_name} ({args.company_ticker})")
 
-    # 1. Fetch Financial Data from FMP API
-    print(f"Fetching financial data from FMP API...")
-    financial_data = get_comprehensive_financial_data(
-        ticker=args.company_ticker, 
-        api_key=fmp_api_key, 
-        period=args.period, 
-        limit=args.years_limit
-    )
+    # 1. Fetch Financial Data — 适配器模式
+    use_adapter = args.data_source in ('yahoo', 'akshare', 'eastmoney', 'ths', 'auto')
+    company_data = None
+    historical_metrics_df = None
 
-    # Check if we got the required data
-    if financial_data.get('income_statement') is None or financial_data['income_statement'].empty:
-        print("Error: Could not fetch income statement data from FMP API. Exiting.")
-        print("Please check:")
-        print("1. FMP API key is valid and has remaining quota")
-        print("2. Ticker symbol is correct") 
-        print("3. Internet connection is working")
-        return
+    if use_adapter:
+        source = args.data_source if args.data_source in ('yahoo', 'akshare', 'eastmoney', 'ths') else 'yahoo'
+        print(f"Fetching financial data via {source} adapter...")
+        try:
+            adapter = get_adapter(source)
+            company_data = adapter.fetch_all(
+                ticker=args.company_ticker,
+                period=args.period,
+                limit=args.years_limit
+            )
 
-    print("Successfully fetched financial data from FMP API")
-    income_df = financial_data['income_statement']
-    print(f"Retrieved {len(income_df)} years of income statement data")
-    
-    # Display available years for confirmation
-    available_years = sorted(income_df['year'].tolist(), reverse=True)
-    print(f"Available years: {available_years}")
+            # 通过适配器的统一数据模型生成 metrics DataFrame
+            historical_metrics_df = company_data.to_metrics_dataframe()
 
-    # 2. Process Historical Metrics
-    print("Processing historical financial metrics...")
-    historical_metrics_df = extract_historical_metrics_from_api_data(financial_data)
+            if historical_metrics_df is not None and not historical_metrics_df.empty:
+                # 检查是否有有效数据
+                data_cols = [c for c in historical_metrics_df.columns if c != 'metrics']
+                has_data = any(
+                    historical_metrics_df[col].apply(lambda x: x is not None and x == x).any()
+                    for col in data_cols
+                )
+                if has_data:
+                    available_years = [c.replace('A', '') for c in data_cols]
+                    print(f"Successfully fetched {len(data_cols)} years via {adapter.name}")
+                    print(f"Available years: {available_years}")
+                else:
+                    print(f"Warning: {adapter.name} returned empty data, falling back...")
+                    historical_metrics_df = None
+            else:
+                print(f"Warning: {adapter.name} returned no data")
+                historical_metrics_df = None
+
+        except Exception as e:
+            print(f"Adapter error: {e}")
+            if args.data_source == 'yahoo':
+                print("Yahoo adapter failed, exiting.")
+                return
+            print("Falling back to FMP API...")
+            historical_metrics_df = None
+
+    # Fallback to FMP API (original path)
+    if historical_metrics_df is None:
+        print(f"Fetching financial data from FMP API...")
+        financial_data = get_comprehensive_financial_data(
+            ticker=args.company_ticker,
+            api_key=fmp_api_key,
+            period=args.period,
+            limit=args.years_limit
+        )
+
+        if financial_data.get('income_statement') is None or financial_data['income_statement'].empty:
+            print("Error: Could not fetch data from any source. Exiting.")
+            return
+
+        print("Successfully fetched financial data from FMP API")
+        income_df = financial_data['income_statement']
+        print(f"Retrieved {len(income_df)} years of income statement data")
+        available_years = sorted(income_df['year'].tolist(), reverse=True)
+        print(f"Available years: {available_years}")
+
+        print("Processing historical financial metrics...")
+        historical_metrics_df = extract_historical_metrics_from_api_data(financial_data)
 
     if historical_metrics_df is None or historical_metrics_df.empty:
-        print("Error: Failed to process historical metrics from API data. Exiting.")
+        print("Error: Failed to process historical metrics from any source. Exiting.")
         return
-    
-    print("\nHistorical Metrics Extracted from API:")
+
+    print("\nHistorical Metrics Extracted:")
     print(historical_metrics_df.to_string())
 
     # 3. Forecasting
@@ -227,7 +278,20 @@ def main():
     # 4.5 Fetch Company News
     company_news = None
     enhanced_news_data = None
-    if fmp_api_key:
+
+    # 优先用适配器的新闻
+    if company_data and company_data.news:
+        print(f"\nUsing news from adapter ({len(company_data.news)} items)...")
+        company_news = [
+            {"title": n.title, "date": n.date.isoformat(), "source": n.source, "url": n.url}
+            for n in company_data.news
+        ]
+        news_output_path = os.path.join(output_dir, "company_news.json")
+        with open(news_output_path, 'w', encoding='utf-8') as f:
+            json.dump(company_news, f, indent=2, ensure_ascii=False)
+        print(f"Saved company news to: {news_output_path}")
+
+    elif fmp_api_key:
         print(f"\nFetching company news for {args.company_ticker}...")
         try:
             if args.enable_enhanced_news:
@@ -322,7 +386,7 @@ def main():
                 'margin_sensitivity': margin_sensitivity.to_dict() if not margin_sensitivity.empty else {},
                 'combined_sensitivity': combined_sensitivity.to_dict() if not combined_sensitivity.empty else {},
                 'confidence_intervals': sensitivity_analyzer.confidence_intervals,
-                'summary': sensitivity_analyzer.generate_sensitivity_summary()
+                'summary': sensitivity_analyzer.generate_sensitivity_summary(language=args.language)
             }
             
             # 保存敏感性分析结果
@@ -346,7 +410,7 @@ def main():
     if args.enable_catalyst_analysis and company_news:
         print(f"\nPerforming catalyst analysis...")
         try:
-            catalyst_analyzer = CatalystAnalyzer(args.company_ticker, fmp_api_key, company_name=args.company_name)
+            catalyst_analyzer = CatalystAnalyzer(args.company_ticker, fmp_api_key, company_name=args.company_name, language=args.language)
             
             # 识别催化剂
             catalysts = catalyst_analyzer.identify_catalysts(company_news)
@@ -427,7 +491,7 @@ def main():
                 if text_type == "news_summary" and not company_news:
                     print(f"Skipping 'news_summary' - no news data available")
                     # Create placeholder file
-                    fallback_text = f"No recent news available for {args.company_name} ({args.company_ticker})."
+                    fallback_text = f"{args.company_name}（{args.company_ticker}）暂无近期新闻数据。" if args.language == 'zh' else f"No recent news available for {args.company_name} ({args.company_ticker})."
                     file_path = os.path.join(text_output_dir, f"{text_type}.txt")
                     with open(file_path, "w", encoding="utf-8") as f:
                         f.write(fallback_text)
@@ -438,27 +502,36 @@ def main():
                 try:
                     # Call the single, unified function for all types
                     generated_text = generate_text_section(
-                        data_for_text_gen, 
-                        text_type, 
-                        openai_api_key, 
-                        args.company_name, 
+                        data_for_text_gen,
+                        text_type,
+                        openai_api_key,
+                        args.company_name,
                         args.company_ticker,
                         base_url=openai_base_url,
-                        model=openai_model
+                        model=openai_model,
+                        language=args.language
                     )
                     
-                    # Fallback validation can remain here as a safety net
-                    if text_type == "competitor_analysis" and (not generated_text or len(generated_text.split('.')) < 3):
-                         print(f"⚠️ Warning: Competitor analysis seems too short, using fallback.")
-                         generated_text = f"{args.company_name} demonstrates competitive positioning within its industry sector through consistent financial performance and strategic market positioning relative to key competitors."
-                    
-                    elif text_type == "major_takeaways" and "Revenue Growth:" not in generated_text:
-                         print(f"⚠️ Warning: Major takeaways missing required sections, using fallback.")
-                         generated_text = f"Revenue Growth: {args.company_name}'s revenue growth shows consistent performance trends.\n\nGross Profit Margin: {args.company_name}'s gross profit margins demonstrate operational effectiveness.\n\nSG&A Expense Margin: {args.company_name}'s SG&A expense management shows disciplined cost control.\n\nEBITDA Margin Stability: {args.company_name}'s EBITDA margin stability reflects strong underlying fundamentals."
+                    # Fallback validation — 双语支持
+                    is_zh = args.language == 'zh'
 
-                    elif text_type == "news_summary" and (not generated_text or len(generated_text.split()) < 50):
+                    if text_type == "competitor_analysis" and (not generated_text or len(generated_text) < 50):
+                         print(f"⚠️ Warning: Competitor analysis seems too short, using fallback.")
+                         generated_text = f"{args.company_name}凭借持续稳健的财务表现和相对于行业主要竞争对手的战略性市场定位，展现出良好的竞争态势。" if is_zh else f"{args.company_name} demonstrates competitive positioning within its industry sector through consistent financial performance and strategic market positioning relative to key competitors."
+
+                    elif text_type == "major_takeaways":
+                         # 中文版不检查 "Revenue Growth:" 英文关键词
+                         has_sections = ("Revenue Growth:" in generated_text) or ("营收" in generated_text and "利润" in generated_text)
+                         if not has_sections:
+                             print(f"⚠️ Warning: Major takeaways missing required sections, using fallback.")
+                             if is_zh:
+                                 generated_text = f"营收增长：{args.company_name}的营收增长呈现持续向好趋势。\n\n毛利率：{args.company_name}的毛利率体现了良好的运营效能。\n\nSG&A费用率：{args.company_name}的管理及销售费用管理展现了严格的成本控制。\n\nEBITDA利润率：{args.company_name}的EBITDA利润率稳定性反映了扎实的基本面。"
+                             else:
+                                 generated_text = f"Revenue Growth: {args.company_name}'s revenue growth shows consistent performance trends.\n\nGross Profit Margin: {args.company_name}'s gross profit margins demonstrate operational effectiveness.\n\nSG&A Expense Margin: {args.company_name}'s SG&A expense management shows disciplined cost control.\n\nEBITDA Margin Stability: {args.company_name}'s EBITDA margin stability reflects strong underlying fundamentals."
+
+                    elif text_type == "news_summary" and (not generated_text or len(generated_text) < 30):
                         print(f"⚠️ Warning: News summary seems too short, using fallback.")
-                        generated_text = f"Recent news coverage for {args.company_name} reflects ongoing market interest and developments in the company's operations and strategic initiatives."
+                        generated_text = f"{args.company_name}近期新闻报道反映了市场对公司运营和战略举措的持续关注和发展动态。" if is_zh else f"Recent news coverage for {args.company_name} reflects ongoing market interest and developments in the company's operations and strategic initiatives."
 
                     file_path = os.path.join(text_output_dir, f"{text_type}.txt")
                     with open(file_path, "w", encoding="utf-8") as f:
@@ -468,7 +541,7 @@ def main():
                 except Exception as e:
                     print(f"Error generating text for '{text_type}': {e}")
                     # Create a fallback file if generation fails
-                    fallback_text = f"{args.company_name} ({args.company_ticker}) {text_type.replace('_', ' ')} analysis not available."
+                    fallback_text = f"{args.company_name}（{args.company_ticker}）{text_type.replace('_', '')}分析暂不可用。" if args.language == 'zh' else f"{args.company_name} ({args.company_ticker}) {text_type.replace('_', ' ')} analysis not available."
                     file_path = os.path.join(text_output_dir, f"{text_type}.txt")
                     with open(file_path, "w", encoding="utf-8") as f:
                         f.write(fallback_text)
@@ -478,12 +551,37 @@ def main():
 
     # 6. Save additional financial statement data for reference
     print("\nSaving additional financial statement data...")
-    
-    for statement_name, df in financial_data.items():
-        if df is not None and not df.empty:
-            statement_path = os.path.join(output_dir, f"{statement_name}_raw_data.csv")
-            df.to_csv(statement_path, index=False)
-            print(f"Saved {statement_name} to: {statement_path} ({len(df)} rows)")
+
+    if company_data is not None:
+        # 适配器路径：保存统一格式的原始数据
+        import dataclasses
+        stmts = company_data.financial_statements
+        if stmts:
+            stmts_dicts = [s.to_dict() for s in stmts]
+            stmts_df = pd.DataFrame(stmts_dicts)
+            stmt_path = os.path.join(output_dir, "financial_statements_raw.csv")
+            stmts_df.to_csv(stmt_path, index=False)
+            print(f"Saved financial statements to: {stmt_path} ({len(stmts_df)} rows)")
+
+        # 保存公司信息
+        profile_path = os.path.join(output_dir, "company_profile.json")
+        with open(profile_path, 'w', encoding='utf-8') as f:
+            json.dump(dataclasses.asdict(company_data.profile), f, indent=2, ensure_ascii=False)
+        print(f"Saved company profile to: {profile_path}")
+
+        # 保存技术指标
+        if company_data.technical_indicators:
+            tech_path = os.path.join(output_dir, "technical_indicators.json")
+            with open(tech_path, 'w', encoding='utf-8') as f:
+                json.dump(company_data.technical_indicators, f, indent=2)
+            print(f"Saved technical indicators to: {tech_path}")
+    elif 'financial_data' in dir():
+        # FMP 路径：原始逻辑
+        for statement_name, df in financial_data.items():
+            if df is not None and not df.empty:
+                statement_path = os.path.join(output_dir, f"{statement_name}_raw_data.csv")
+                df.to_csv(statement_path, index=False)
+                print(f"Saved {statement_name} to: {statement_path} ({len(df)} rows)")
 
     # 7. Create summary report
     all_text_types = ["tagline", "company_overview", "investment_overview", "valuation_overview", "risks", "competitor_analysis", "major_takeaways", "news_summary"]
