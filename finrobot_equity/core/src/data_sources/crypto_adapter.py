@@ -51,21 +51,65 @@ def _safe_float(val, default=None):
 class CryptoAdapter(DataSourceAdapter):
     """加密货币数据适配器"""
 
-    def __init__(self, exchange_id: str = 'bybit'):
+    # 交易所优先级：binanceus > bybit > gate > kucoin
+    EXCHANGE_FALLBACKS = ['binanceus', 'bybit', 'gate', 'kucoin', 'bitget']
+
+    def __init__(self, exchange_id: str = None, binance_api_key: str = None, binance_secret: str = None):
         self._exchange_id = exchange_id
         self._exchange = None
         self._cg = None
+        self._binance_key = binance_api_key
+        self._binance_secret = binance_secret
 
     @property
     def name(self) -> str:
-        return f"Crypto ({self._exchange_id.capitalize()} + CoinGecko)"
+        ex = self._exchange_id or 'auto'
+        return f"Crypto ({ex.capitalize()} + CoinGecko)"
 
     def _get_exchange(self):
         if self._exchange is None:
             import ccxt
-            self._exchange = getattr(ccxt, self._exchange_id)({
-                'enableRateLimit': True,
-            })
+
+            # 如果有 Binance API key，优先用 binance (通过代理)
+            if self._binance_key and self._exchange_id in (None, 'binance'):
+                import os
+                proxy = os.environ.get('HTTPS_PROXY') or os.environ.get('HTTP_PROXY')
+                config = {
+                    'apiKey': self._binance_key,
+                    'secret': self._binance_secret,
+                    'enableRateLimit': True,
+                }
+                if proxy:
+                    config['proxies'] = {'http': proxy, 'https': proxy}
+                try:
+                    self._exchange = ccxt.binance(config)
+                    self._exchange.fetch_ticker('BTC/USDT')
+                    self._exchange_id = 'binance'
+                    return self._exchange
+                except:
+                    self._exchange = None
+
+            # 指定交易所
+            if self._exchange_id:
+                self._exchange = getattr(ccxt, self._exchange_id)({'enableRateLimit': True})
+                return self._exchange
+
+            # 自动尝试可用交易所
+            for ex_name in self.EXCHANGE_FALLBACKS:
+                try:
+                    ex = getattr(ccxt, ex_name)({'enableRateLimit': True})
+                    ex.fetch_ticker('BTC/USDT')
+                    self._exchange = ex
+                    self._exchange_id = ex_name
+                    print(f"  [Crypto] Using exchange: {ex_name}")
+                    return self._exchange
+                except:
+                    continue
+
+            # 最终回退
+            self._exchange = ccxt.bybit({'enableRateLimit': True})
+            self._exchange_id = 'bybit'
+
         return self._exchange
 
     def _get_coingecko(self):
