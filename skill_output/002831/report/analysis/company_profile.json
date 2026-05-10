@@ -1,0 +1,20 @@
+{
+  "ticker": "002831",
+  "name": "",
+  "sector": "",
+  "industry": "",
+  "description": null,
+  "price": null,
+  "market_cap": null,
+  "volume": null,
+  "pe_ratio": null,
+  "pb_ratio": null,
+  "ps_ratio": null,
+  "dividend_yield": null,
+  "beta": null,
+  "exchange": "深交所 (SZSE)",
+  "country": "中国",
+  "currency": "CNY",
+  "employees": null,
+  "website": null
+}

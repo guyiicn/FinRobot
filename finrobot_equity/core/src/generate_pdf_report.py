@@ -176,7 +176,37 @@ def load_analysis_data(analysis_dir: str, ticker: str) -> Dict[str, Any]:
         print(f"✅ Loaded company news")
     else:
         data['company_news'] = []
-    
+
+    # 同行 comparables（PE/PB/市值/营收/净利率）
+    comparables_path = os.path.join(analysis_dir, "comparables.json")
+    if os.path.exists(comparables_path):
+        try:
+            with open(comparables_path, 'r', encoding='utf-8') as f:
+                comp_list = json.load(f)
+            # 转成 DataFrame：指标为行，公司为列
+            if comp_list:
+                rows = []
+                col_names = ['指标'] + [c.get('name') or c.get('ticker', '') for c in comp_list]
+                metric_map = [
+                    ('价格(元)',    'price',      lambda v: f"¥{v:.2f}" if v else 'N/A'),
+                    ('市值(亿)',    'market_cap', lambda v: f"{v/1e8:.1f}" if v else 'N/A'),
+                    ('PE(TTM)',    'pe_ratio',   lambda v: f"{v:.1f}x" if v else '亏损/N/A'),
+                    ('PB',         'pb_ratio',   lambda v: f"{v:.2f}x" if v else 'N/A'),
+                    ('营收(亿)',    'revenue',    lambda v: f"{v/1e8:.1f}" if v else 'N/A'),
+                    ('净利润(亿)',  'net_income', lambda v: f"{v/1e8:.2f}" if v else 'N/A'),
+                    ('净利率',     'net_margin', lambda v: f"{v:.1f}%" if v else 'N/A'),
+                ]
+                for label, key, fmt in metric_map:
+                    row = [label] + [fmt(c.get(key)) for c in comp_list]
+                    rows.append(row)
+                data['comparables_df'] = pd.DataFrame(rows, columns=col_names)
+                print(f"✅ Loaded comparables: {len(comp_list)} 家同行")
+        except Exception as e:
+            print(f"⚠️ Could not load comparables: {e}")
+            data['comparables_df'] = pd.DataFrame()
+    else:
+        data['comparables_df'] = pd.DataFrame()
+
     return data
 
 
@@ -790,6 +820,7 @@ def main():
         'financial_summary_df': financial_summary_df,
         'credit_cashflow_df': credit_metrics_df,
         'peer_comparison_df': loaded_data.get('peer_ev_ebitda_df', pd.DataFrame()),
+        'comparables_df': loaded_data.get('comparables_df', pd.DataFrame()),
         
         # 增强分析数据
         'sensitivity_analysis': loaded_data.get('sensitivity_analysis', {}),

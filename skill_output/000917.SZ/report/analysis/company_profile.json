@@ -1,0 +1,20 @@
+{
+  "ticker": "000917",
+  "name": "",
+  "sector": "",
+  "industry": "",
+  "description": null,
+  "price": 10.1,
+  "market_cap": 13842410714.285713,
+  "volume": null,
+  "pe_ratio": 144.29,
+  "pb_ratio": 1.39,
+  "ps_ratio": null,
+  "dividend_yield": null,
+  "beta": null,
+  "exchange": "深交所 (SZSE)",
+  "country": "中国",
+  "currency": "CNY",
+  "employees": null,
+  "website": null
+}

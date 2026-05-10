@@ -1,0 +1,47 @@
+[
+  {
+    "ticker": "301062",
+    "price": 8.1,
+    "pe_ratio": 62.31,
+    "pb_ratio": 2.3,
+    "eps": 0.13,
+    "nav_per_share": 3.52,
+    "revenue": 1191000000.0,
+    "net_income": 53326700.0,
+    "net_margin": 4.5,
+    "name": "上海艾录"
+  },
+  {
+    "ticker": "002831",
+    "price": 37.05,
+    "pe_ratio": 24.06,
+    "pb_ratio": 2.94,
+    "eps": 1.54,
+    "nav_per_share": 12.61,
+    "revenue": 17157000000.0,
+    "net_income": 1409000000.0,
+    "net_margin": 8.2
+  },
+  {
+    "ticker": "002014",
+    "price": 11.4,
+    "pe_ratio": 15.0,
+    "pb_ratio": 2.7,
+    "eps": 0.76,
+    "nav_per_share": 4.23,
+    "revenue": 3525000000.0,
+    "net_income": 468000000.0,
+    "net_margin": 13.3
+  },
+  {
+    "ticker": "002228",
+    "price": 3.78,
+    "pe_ratio": 47.25,
+    "pb_ratio": 1.47,
+    "eps": 0.08,
+    "nav_per_share": 2.57,
+    "revenue": 11470000000.0,
+    "net_income": 93555100.0,
+    "net_margin": 0.8
+  }
+]

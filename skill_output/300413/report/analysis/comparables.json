@@ -1,0 +1,47 @@
+[
+  {
+    "ticker": "300413",
+    "price": 20.62,
+    "pe_ratio": 28.25,
+    "pb_ratio": 1.72,
+    "eps": 0.73,
+    "nav_per_share": 12.02,
+    "revenue": 14080000000.000002,
+    "net_income": 1364000000.0,
+    "net_margin": 9.7,
+    "name": "芒果超媒"
+  },
+  {
+    "ticker": "002027",
+    "price": 6.13,
+    "pe_ratio": 17.17,
+    "pb_ratio": 5.19,
+    "eps": 0.357,
+    "nav_per_share": 1.18,
+    "revenue": 12262000000.0,
+    "net_income": 5155000000.0,
+    "net_margin": 42.0
+  },
+  {
+    "ticker": "300133",
+    "price": 8.51,
+    "pe_ratio": 65.46,
+    "pb_ratio": 2.26,
+    "eps": 0.13,
+    "nav_per_share": 3.77,
+    "revenue": 1939000000.0,
+    "net_income": 243000000.00000003,
+    "net_margin": 12.5
+  },
+  {
+    "ticker": "300027",
+    "price": 1.77,
+    "pe_ratio": null,
+    "pb_ratio": 13.62,
+    "eps": -0.1,
+    "nav_per_share": 0.13,
+    "revenue": 465000000.00000006,
+    "net_income": -285000000.0,
+    "net_margin": -61.3
+  }
+]

@@ -1,0 +1,181 @@
+[
+  {
+    "ticker": "000917",
+    "price": null,
+    "pe_ratio": null,
+    "pb_ratio": null,
+    "eps": null,
+    "nav_per_share": null,
+    "market_cap": null,
+    "error": "HTTPSConnectionPool(host='basic.10jqka.com.cn', port=443): Max retries exceeded with url: /new/000917/finance.html (Caused by SSLError(SSLEOFError(8, '[SSL: UNEXPECTED_EOF_WHILE_READING] EOF occurred in violation of protocol (_ssl.c:1017)')))",
+    "name": "电广传媒"
+  },
+  {
+    "ticker": "000607",
+    "price": null,
+    "pe_ratio": null,
+    "pb_ratio": null,
+    "eps": null,
+    "nav_per_share": null,
+    "market_cap": null,
+    "history": [
+      {
+        "year": "2025",
+        "revenue": 1247000000.0,
+        "net_income": -358000000.0,
+        "gross_margin": 17.06,
+        "net_margin": -31.5,
+        "roe": -25.3,
+        "asset_liability_ratio": 57.11,
+        "eps_cfs": 0.06,
+        "revenue_growth": -12.88,
+        "net_income_growth": -4201.4
+      },
+      {
+        "year": "2024",
+        "revenue": 1431000000.0,
+        "net_income": -8317300.0,
+        "gross_margin": 22.01,
+        "net_margin": -0.56,
+        "roe": -0.51,
+        "asset_liability_ratio": 46.26,
+        "eps_cfs": 0.11,
+        "revenue_growth": -19.4,
+        "net_income_growth": -109.41
+      },
+      {
+        "year": "2023",
+        "revenue": 1776000000.0000002,
+        "net_income": 88428700.00000001,
+        "gross_margin": 20.79,
+        "net_margin": 5.39,
+        "roe": 5.49,
+        "asset_liability_ratio": 51.51,
+        "eps_cfs": 0.27,
+        "revenue_growth": -1.75,
+        "net_income_growth": 4.31
+      }
+    ],
+    "revenue": 1247000000.0,
+    "net_income": -358000000.0,
+    "net_margin": -31.5,
+    "gross_margin": 17.06,
+    "roe": -25.3,
+    "asset_liability_ratio": 57.11,
+    "eps_cfs": 0.06,
+    "revenue_growth": -12.88,
+    "net_income_growth": -4201.4
+  },
+  {
+    "ticker": "002624",
+    "price": 17.12,
+    "pe_ratio": null,
+    "pb_ratio": 4.92,
+    "eps": -0.68,
+    "nav_per_share": 3.48,
+    "market_cap": null,
+    "history": [
+      {
+        "year": "2024",
+        "revenue": 5570000000.0,
+        "net_income": -1288000000.0,
+        "gross_margin": 57.87,
+        "net_margin": -25.13,
+        "roe": -16.52,
+        "asset_liability_ratio": 39.56,
+        "eps_cfs": 0.3,
+        "revenue_growth": -28.5,
+        "net_income_growth": -361.98
+      },
+      {
+        "year": "2023",
+        "revenue": 7791000000.0,
+        "net_income": 491000000.0,
+        "gross_margin": 59.7,
+        "net_margin": 7.48,
+        "roe": 5.45,
+        "asset_liability_ratio": 34.95,
+        "eps_cfs": 0.39,
+        "revenue_growth": 1.57,
+        "net_income_growth": -64.31
+      },
+      {
+        "year": "2022",
+        "revenue": 7670000000.0,
+        "net_income": 1377000000.0,
+        "gross_margin": 68.45,
+        "net_margin": 18.25,
+        "roe": 14.54,
+        "asset_liability_ratio": 39.4,
+        "eps_cfs": 0.6,
+        "revenue_growth": -9.95,
+        "net_income_growth": 273.07
+      }
+    ],
+    "revenue": 5570000000.0,
+    "net_income": -1288000000.0,
+    "net_margin": -25.13,
+    "gross_margin": 57.87,
+    "roe": -16.52,
+    "asset_liability_ratio": 39.56,
+    "eps_cfs": 0.3,
+    "revenue_growth": -28.5,
+    "net_income_growth": -361.98
+  },
+  {
+    "ticker": "300327",
+    "price": null,
+    "pe_ratio": null,
+    "pb_ratio": null,
+    "eps": 0.3924,
+    "nav_per_share": 5.1,
+    "market_cap": null,
+    "history": [
+      {
+        "year": "2025",
+        "revenue": 1284000000.0,
+        "net_income": 60163600.0,
+        "gross_margin": 31.51,
+        "net_margin": 2.03,
+        "roe": 3.41,
+        "asset_liability_ratio": 16.22,
+        "eps_cfs": 0.57,
+        "revenue_growth": -4.41,
+        "net_income_growth": -55.14
+      },
+      {
+        "year": "2024",
+        "revenue": 1343000000.0,
+        "net_income": 134000000.00000001,
+        "gross_margin": 33.6,
+        "net_margin": 6.55,
+        "roe": 7.81,
+        "asset_liability_ratio": 21.05,
+        "eps_cfs": 0.54,
+        "revenue_growth": 3.32,
+        "net_income_growth": -28.01
+      },
+      {
+        "year": "2023",
+        "revenue": 1300000000.0,
+        "net_income": 186000000.0,
+        "gross_margin": 35.62,
+        "net_margin": 10.23,
+        "roe": 11.66,
+        "asset_liability_ratio": 18.66,
+        "eps_cfs": -0.09,
+        "revenue_growth": -18.83,
+        "net_income_growth": -42.32
+      }
+    ],
+    "revenue": 1284000000.0,
+    "net_income": 60163600.0,
+    "net_margin": 2.03,
+    "gross_margin": 31.51,
+    "roe": 3.41,
+    "asset_liability_ratio": 16.22,
+    "eps_cfs": 0.57,
+    "revenue_growth": -4.41,
+    "net_income_growth": -55.14
+  }
+]

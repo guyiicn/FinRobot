@@ -187,8 +187,70 @@ class THSAdapter(DataSourceAdapter):
             print(f"  [同花顺] 获取财务报表失败 {ticker}: {e}")
             return []
 
+    def _fetch_realtime_price(self, ticker: str) -> Optional[float]:
+        """从新浪财经获取实时股价（直连，无需代理）"""
+        import requests
+        first_digit = ticker[0]
+        prefix = 'sh' if first_digit in ('6', '9') else 'sz'
+        symbol = f"{prefix}{ticker}"
+        url = f"https://hq.sinajs.cn/list={symbol}"
+        try:
+            r = requests.get(url, headers={"Referer": "https://finance.sina.com.cn"}, timeout=10)
+            # 格式: var hq_str_sz301062="上海艾录,昨收,今开,最高,最低,现价,..."
+            content = r.text
+            if '="' in content:
+                fields = content.split('="')[1].split('"')[0].split(',')
+                if len(fields) > 5:
+                    price = _safe_float(fields[3])  # index 3 = 当前价/最新价
+                    if price and price > 0:
+                        return price
+        except Exception as e:
+            print(f"  [新浪] 获取股价失败 {ticker}: {e}")
+        return None
+
+    def _fetch_valuation(self, ticker: str) -> dict:
+        """
+        从同花顺财务摘要 + 新浪实时股价计算 PE/PB/市值。
+        返回 dict: price, eps, nav_per_share, pe_ratio, pb_ratio, market_cap, net_income, revenue
+        """
+        import akshare as ak
+        result = {}
+        try:
+            abstract_df = ak.stock_financial_abstract_ths(symbol=ticker, indicator='按年度')
+            time.sleep(REQUEST_INTERVAL)
+            if abstract_df is None or abstract_df.empty:
+                return result
+
+            # 优先取2024年，否则取最新
+            row_2024 = abstract_df[abstract_df['报告期'].astype(str).str.contains('2024')]
+            row = row_2024.iloc[0] if not row_2024.empty else abstract_df.iloc[0]
+
+            eps = _safe_float(row.get('基本每股收益'))
+            nav = _parse_cn_number(row.get('每股净资产'))
+            revenue = _parse_cn_number(row.get('营业总收入'))
+            net_income = _parse_cn_number(row.get('净利润'))
+
+            result['eps'] = eps
+            result['nav_per_share'] = nav
+            result['revenue'] = revenue
+            result['net_income'] = net_income
+
+            # 实时股价
+            price = self._fetch_realtime_price(ticker)
+            if price:
+                result['price'] = price
+                if eps and eps > 0:
+                    result['pe_ratio'] = round(price / eps, 2)
+                elif eps and eps <= 0:
+                    result['pe_ratio'] = None  # 亏损，PE无意义
+                if nav and nav > 0:
+                    result['pb_ratio'] = round(price / nav, 2)
+        except Exception as e:
+            print(f"  [THS估值] {ticker} 失败: {str(e)[:80]}")
+        return result
+
     def fetch_company_profile(self, ticker: str) -> CompanyProfile:
-        """从同花顺获取公司信息（用 stock_info_global_ths）"""
+        """从同花顺获取公司信息，含 PE/PB/市值"""
         import akshare as ak
 
         ticker = self._normalize_ticker(ticker)
@@ -201,38 +263,240 @@ class THSAdapter(DataSourceAdapter):
             exchange = '北交所 (BSE)'
 
         try:
-            # 用财务摘要获取基本指标
-            abstract_df = ak.stock_financial_abstract_ths(symbol=ticker, indicator='按报告期')
-            time.sleep(REQUEST_INTERVAL)
+            val = self._fetch_valuation(ticker)
+            price     = val.get('price')
+            pe_ratio  = val.get('pe_ratio')
+            pb_ratio  = val.get('pb_ratio')
 
-            # 从最新一行提取
-            if abstract_df is not None and not abstract_df.empty:
-                latest = abstract_df.iloc[0]
-                eps = _safe_float(latest.get('基本每股收益'))
-                roe_val = latest.get('加权净资产收益率')
-                # roe 可能带 %
-                roe = None
-                if roe_val and str(roe_val) not in ('--', 'nan'):
-                    try:
-                        roe = float(str(roe_val).replace('%', '')) / 100
-                    except:
-                        pass
+            # 市值 = 股价 × 总股本（用净利润/EPS 估算总股本）
+            market_cap = None
+            eps = val.get('eps')
+            net_income = val.get('net_income')
+            if price and eps and eps > 0 and net_income:
+                total_shares = net_income / eps
+                market_cap = price * total_shares
+
+            print(f"  [THS估值] {ticker}: 价格={price} PE={pe_ratio} PB={pb_ratio} 市值={round(market_cap/1e8,1) if market_cap else 'N/A'}亿")
 
             return CompanyProfile(
                 ticker=ticker,
-                name='',  # 同花顺没有直接的公司名接口，但新浪的 fetch_all 会补
+                name='',
                 sector='', industry='',
                 exchange=exchange,
                 country='中国', currency='CNY',
+                price=price,
+                pe_ratio=pe_ratio,
+                pb_ratio=pb_ratio,
+                market_cap=market_cap,
             )
 
         except Exception as e:
             print(f"  [同花顺] 获取公司信息失败 {ticker}: {str(e)[:80]}")
             return CompanyProfile(ticker=ticker, exchange=exchange, country='中国', currency='CNY')
 
+    def fetch_comparables(self, peer_tickers: list) -> list:
+        """
+        批量采集同行估值数据，供 comparables table 使用。
+        返回 list of dict，每项包含 ticker/name/price/PE/PB/市值/营收/净利润/净利率
+        """
+        with no_proxy():
+            return self._fetch_comparables_impl(peer_tickers)
+
+    def _fetch_comparables_impl(self, peer_tickers: list, years: int = 3) -> list:
+        """
+        批量采集同行估值 + 历史财务数据。
+        每家公司返回:
+          - 实时估值: price/pe_ratio/pb_ratio/market_cap
+          - 最新年度: revenue/net_income/net_margin/gross_margin/roe/asset_liability_ratio/eps_cfs
+          - 历史3年: history=[{year, revenue, net_income, net_margin, gross_margin, roe, ...}, ...]
+        """
+        import akshare as ak
+        results = []
+        for raw_ticker in peer_tickers:
+            ticker = self._normalize_ticker(raw_ticker)
+            rec = {'ticker': ticker}
+            try:
+                # --- 1. 实时估值 ---
+                val = self._fetch_valuation(ticker)
+                rec.update({
+                    'price':          val.get('price'),
+                    'pe_ratio':       val.get('pe_ratio'),
+                    'pb_ratio':       val.get('pb_ratio'),
+                    'eps':            val.get('eps'),
+                    'nav_per_share':  val.get('nav_per_share'),
+                    'market_cap':     None,  # 下面补
+                })
+                # 市值估算
+                price = val.get('price')
+                eps   = val.get('eps')
+                net_inc_latest = val.get('net_income')
+                if price and eps and eps > 0 and net_inc_latest:
+                    rec['market_cap'] = price * (net_inc_latest / eps)
+                time.sleep(REQUEST_INTERVAL)
+
+                # --- 2. 历史财务数据（同花顺年度摘要）---
+                df = ak.stock_financial_abstract_ths(symbol=ticker, indicator='按年度')
+                # 字段（已确认存在）:
+                #   报告期, 净利润, 营业总收入, 销售毛利率, 销售净利率,
+                #   净资产收益率, 资产负债率, 每股经营现金流, 基本每股收益
+                df['_year'] = df['报告期'].astype(str).str[:4].astype(int, errors='ignore')
+                df = df.sort_values('_year', ascending=False).head(years)
+
+                def pct(s):
+                    """'20.84%' → 20.84"""
+                    if s is None: return None
+                    try: return float(str(s).replace('%','').replace('--','').strip())
+                    except: return None
+                def cn_num(s):
+                    """'3.5亿' → 3.5e8"""
+                    if s is None: return None
+                    s = str(s).strip()
+                    try:
+                        if '亿' in s: return float(s.replace('亿','')) * 1e8
+                        if '万' in s: return float(s.replace('万','')) * 1e4
+                        return float(s)
+                    except: return None
+
+                history = []
+                for _, row in df.iterrows():
+                    yr = str(row.get('报告期', ''))[:4]
+                    rev = cn_num(row.get('营业总收入'))
+                    ni  = cn_num(row.get('净利润'))
+                    history.append({
+                        'year':         yr,
+                        'revenue':      rev,
+                        'net_income':   ni,
+                        'gross_margin': pct(row.get('销售毛利率')),
+                        'net_margin':   pct(row.get('销售净利率')),
+                        'roe':          pct(row.get('净资产收益率')),
+                        'asset_liability_ratio': pct(row.get('资产负债率')),
+                        'eps_cfs':      _safe_float(row.get('每股经营现金流')),
+                        'revenue_growth': pct(row.get('营业总收入同比增长率')),
+                        'net_income_growth': pct(row.get('净利润同比增长率')),
+                    })
+
+                rec['history'] = history
+                # 最新一年数据也放在顶层（方便快速访问）
+                if history:
+                    latest = history[0]
+                    rec['revenue']   = latest['revenue']
+                    rec['net_income'] = latest['net_income']
+                    rec['net_margin'] = latest['net_margin']
+                    rec['gross_margin'] = latest['gross_margin']
+                    rec['roe']       = latest['roe']
+                    rec['asset_liability_ratio'] = latest['asset_liability_ratio']
+                    rec['eps_cfs']   = latest['eps_cfs']
+                    rec['revenue_growth'] = latest['revenue_growth']
+                    rec['net_income_growth'] = latest['net_income_growth']
+
+                time.sleep(REQUEST_INTERVAL)
+                print(f"  [comparables] {ticker}: PE={rec.get('pe_ratio')} 毛利率={rec.get('gross_margin')}% ROE={rec.get('roe')}%")
+
+            except Exception as e:
+                print(f"  [fetch_comparables] {ticker} 失败: {e}")
+                rec['error'] = str(e)
+
+            results.append(rec)
+        return results
+
+    def fetch_auto_peers(self, ticker: str, top_n: int = 4) -> List[str]:
+        """
+        自动从东财行业分类找同行，按市值与 ticker 最接近的 top_n 家。
+        返回 ticker 列表（不含自身）。
+        """
+        with no_proxy():
+            return self._fetch_auto_peers_impl(ticker, top_n)
+
+    def _fetch_auto_peers_impl(self, ticker: str, top_n: int = 4) -> List[str]:
+        import akshare as ak
+        ticker = self._normalize_ticker(ticker)
+        try:
+            # 1. 获取标的所属行业
+            info_df = ak.stock_individual_info_em(symbol=ticker)
+            # info_df 格式: item/value 两列
+            info = dict(zip(info_df.iloc[:, 0], info_df.iloc[:, 1]))
+            industry = info.get('行业') or info.get('所属行业') or info.get('所属板块')
+            if not industry:
+                print(f"  [自动同行] 无法获取 {ticker} 行业信息")
+                return []
+            print(f"  [自动同行] {ticker} 所属行业: {industry}")
+
+            # 2. 获取同行业成分股
+            industry_df = ak.stock_board_industry_cons_em(symbol=industry)
+            # 列: 代码/名称/最新价/涨跌幅/...
+            if '总市值' not in industry_df.columns:
+                # 补充市值：用现价×总股本粗估，或直接用相对排序
+                all_tickers = industry_df['代码'].astype(str).tolist()
+            else:
+                all_tickers = industry_df['代码'].astype(str).tolist()
+
+            # 3. 获取标的市值
+            main_val = self._fetch_valuation(ticker)
+            main_mktcap = main_val.get('market_cap') or 0
+            time.sleep(REQUEST_INTERVAL)
+
+            # 4. 对同行业成分股算市值，找最近的 top_n 家
+            peer_caps = []
+            sample = [t for t in all_tickers if t != ticker][:30]  # 最多采样30家
+            for pt in sample:
+                try:
+                    val = self._fetch_valuation(pt)
+                    cap = val.get('market_cap') or 0
+                    if cap > 0:
+                        peer_caps.append((pt, cap, abs(cap - main_mktcap)))
+                    time.sleep(0.5)
+                except:
+                    continue
+
+            # 按市值差排序，取最近的 top_n
+            peer_caps.sort(key=lambda x: x[2])
+            result = [p[0] for p in peer_caps[:top_n]]
+            print(f"  [自动同行] 找到 {len(result)} 家: {result}")
+            return result
+
+        except Exception as e:
+            print(f"  [自动同行] 失败: {str(e)[:100]}")
+            return []
+
     def fetch_news(self, ticker: str, days: int = 30, limit: int = 20) -> List[NewsItem]:
-        """同花顺没有独立新闻接口，返回空"""
-        return []
+        """从东财获取个股新闻，优先返回与公司直接相关的条目。
+        注意：fetch_all 已套 no_proxy()，单独调用时此方法本身也无需代理（东财直连可用）。
+        策略：
+        1. 拉取东财全部新闻（最多10条）
+        2. 优先筛选标题含 ticker 或公司名的
+        3. 不足 limit 条时补充行业新闻
+        4. 最终返回不超过 limit 条
+        """
+        import akshare as ak
+        ticker = self._normalize_ticker(ticker)
+        items: List[NewsItem] = []
+        try:
+            df = ak.stock_news_em(symbol=ticker)
+            time.sleep(REQUEST_INTERVAL)
+            if df is None or df.empty:
+                return items
+
+            # 优先：标题含 ticker 的（真正个股新闻）
+            direct = df[df['新闻标题'].str.contains(ticker, na=False)]
+            others = df[~df['新闻标题'].str.contains(ticker, na=False)]
+            ordered = pd.concat([direct, others]).head(limit)
+
+            for _, row in ordered.iterrows():
+                try:
+                    pub_time = pd.to_datetime(row.get('发布时间'))
+                except:
+                    pub_time = datetime.now()
+                items.append(NewsItem(
+                    date=pub_time,
+                    title=str(row.get('新闻标题', '')),
+                    content=str(row.get('新闻内容', ''))[:500],
+                    source=str(row.get('文章来源', '东方财富')),
+                    url=str(row.get('新闻链接', '')),
+                ))
+            print(f"  [新闻] {ticker}: 获取 {len(items)} 条（直接相关 {len(direct)} 条）")
+        except Exception as e:
+            print(f"  [新闻] {ticker} 获取失败: {str(e)[:80]}")
+        return items
 
     def fetch_technical_indicators(self, ticker: str) -> dict:
         """同花顺没有日K接口，返回空（可用 AKShare 的新浪源补充）"""

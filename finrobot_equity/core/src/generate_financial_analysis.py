@@ -59,6 +59,9 @@ def main():
     parser.add_argument("--enable-catalyst-analysis", action="store_true", help="Enable catalyst identification and analysis")
     parser.add_argument("--enable-enhanced-news", action="store_true", help="Enable enhanced news integration with categorization")
 
+    # 同行 comparables（A股专用）
+    parser.add_argument("--comparables", type=str, nargs="*", default=[], help="同行 ticker 列表，用于 comparables table（仅 ths 数据源生效）")
+
     # Forecast Configuration
     parser.add_argument("--revenue-growth-2025", type=float, default=0.05, help="Revenue growth assumption for 2025E (default: 5%)")
     parser.add_argument("--revenue-growth-2026", type=float, default=0.06, help="Revenue growth assumption for 2026E (default: 6%)")
@@ -568,6 +571,31 @@ def main():
         with open(profile_path, 'w', encoding='utf-8') as f:
             json.dump(dataclasses.asdict(company_data.profile), f, indent=2, ensure_ascii=False)
         print(f"Saved company profile to: {profile_path}")
+
+        # 采集同行 comparables（仅 THS 路径）
+        if hasattr(adapter, 'fetch_comparables'):
+            main_ticker = adapter._normalize_ticker(args.company_ticker)
+
+            # 优先用用户指定的 --comparables，否则自动找同行
+            peer_list = [adapter._normalize_ticker(t) for t in args.comparables] if args.comparables else []
+            if not peer_list and hasattr(adapter, 'fetch_auto_peers'):
+                print(f"\n🔍 未指定同行，自动查找同行业公司...")
+                peer_list = adapter.fetch_auto_peers(main_ticker, top_n=4)
+
+            if peer_list:
+                print(f"\n📊 采集同行估值数据: {peer_list}")
+                all_tickers = [main_ticker] + [t for t in peer_list if t != main_ticker]
+                comparables_data = adapter.fetch_comparables(all_tickers)
+
+                # 补全主标的的 name
+                for item in comparables_data:
+                    if item.get('ticker') == main_ticker:
+                        item['name'] = args.company_name
+
+                comparables_path = os.path.join(output_dir, "comparables.json")
+                with open(comparables_path, 'w', encoding='utf-8') as f:
+                    json.dump(comparables_data, f, indent=2, ensure_ascii=False)
+                print(f"Saved comparables to: {comparables_path}")
 
         # 保存技术指标
         if company_data.technical_indicators:

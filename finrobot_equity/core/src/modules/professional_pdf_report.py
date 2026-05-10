@@ -884,14 +884,21 @@ class ProfessionalEquityReport:
         fixed_width = 82 * mm  # 固定宽度
         fixed_height = 50 * mm  # 固定高度
         
-        # 左侧：同行对比表格
+        # 左侧：同行对比表格（优先用 comparables_df，其次 peer_comparison_df）
         left_content = []
-        if peer_df is not None and not peer_df.empty:
-            table = self._create_peer_table_fixed(peer_df, fixed_width)
+        comparables_df = self.data.get('comparables_df')
+        use_df = None
+        if comparables_df is not None and not comparables_df.empty:
+            use_df = comparables_df
+        elif peer_df is not None and not peer_df.empty:
+            use_df = peer_df
+
+        if use_df is not None:
+            table = self._create_comparables_table(use_df, fixed_width * 2 + 4*mm)
             if table:
                 left_content.append(table)
         else:
-            left_content.append(Paragraph(self.T.get("Peer comparison data not available.", "Peer comparison data not available."), self.styles['Body']))
+            left_content.append(Paragraph(self.T.get("Peer comparison data not available.", "暂无同行对比数据。"), self.styles['Body']))
         
         # 右侧：图表
         right_content = []
@@ -901,17 +908,13 @@ class ProfessionalEquityReport:
                 right_content.append(img)
                 right_content.append(Paragraph(self.T.get("EV/EBITDA Peer Comparison", "EV/EBITDA Peer Comparison"), self.styles['Caption']))
         
-        if left_content and right_content:
-            layout = Table([[left_content, right_content]], 
-                          colWidths=[fixed_width + 2*mm, fixed_width + 2*mm])
-            layout.setStyle(TableStyle([
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ]))
-            # 使用 KeepTogether 防止表格和图表分页
-            self.elements.append(KeepTogether([layout]))
-        else:
-            for item in left_content:
+        # comparables_df 全宽展示，不再与图表并列
+        for item in left_content:
+            self.elements.append(item)
+        # EV/EBITDA 图表单独跟在表格后
+        if right_content:
+            self.elements.append(Spacer(1, 3*mm))
+            for item in right_content:
                 self.elements.append(item)
     
     # =========================================================================
@@ -1705,6 +1708,58 @@ class ProfessionalEquityReport:
         except:
             return None
     
+    def _create_comparables_table(self, df: pd.DataFrame, total_width: float):
+        """
+        渲染 comparables_df（指标为行，公司为列）。
+        第一列为指标名，后续列为各公司数据。
+        """
+        try:
+            if df is None or df.empty:
+                return None
+            from reportlab.platypus import Table, TableStyle
+            from reportlab.lib import colors
+            mm = 2.8346456692913384  # 1mm in points
+
+            # 构建数据列表
+            headers = list(df.columns)  # ['指标', '公司A', '公司B', ...]
+            data = [headers]
+            for _, row in df.iterrows():
+                data.append([str(v) if v is not None else 'N/A' for v in row])
+
+            n_cols = len(headers)
+            # 第一列（指标名）宽一些
+            first_col_w = total_width * 0.28
+            other_col_w = (total_width - first_col_w) / max(n_cols - 1, 1)
+            col_widths = [first_col_w] + [other_col_w] * (n_cols - 1)
+
+            table = Table(data, colWidths=col_widths, repeatRows=1)
+
+            # 样式
+            style = [
+                # 表头
+                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#C8102E')),
+                ('TEXTCOLOR',  (0, 0), (-1, 0), colors.white),
+                ('FONTNAME',   (0, 0), (-1, 0), 'NotoSansSC' if hasattr(self, '_cn_font') else 'Helvetica-Bold'),
+                ('FONTSIZE',   (0, 0), (-1, 0), 7),
+                ('ALIGN',      (0, 0), (-1, 0), 'CENTER'),
+                # 数据行
+                ('FONTSIZE',   (0, 1), (-1, -1), 7),
+                ('ALIGN',      (1, 1), (-1, -1), 'CENTER'),
+                ('ALIGN',      (0, 1), (0, -1),  'LEFT'),
+                ('GRID',       (0, 0), (-1, -1), 0.3, colors.HexColor('#DDDDDD')),
+                ('ROWBACKGROUNDS', (0, 1), (-1, -1),
+                 [colors.HexColor('#FAFAFA'), colors.HexColor('#F2F2F2')]),
+                ('TOPPADDING',    (0, 0), (-1, -1), 3),
+                ('BOTTOMPADDING', (0, 0), (-1, -1), 3),
+                ('LEFTPADDING',   (0, 0), (-1, -1), 4),
+                ('RIGHTPADDING',  (0, 0), (-1, -1), 4),
+            ]
+            table.setStyle(TableStyle(style))
+            return table
+        except Exception as e:
+            print(f"⚠️ _create_comparables_table 失败: {e}")
+            return None
+
     # =========================================================================
     # 页眉页脚
     # =========================================================================
